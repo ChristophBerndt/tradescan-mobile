@@ -1,10 +1,12 @@
 """
-TradeScan Mobile - Christoph Range-Reversion Strategie
-Datenquelle: Twelve Data API (Batch-Calls - ultraschnell!)
+TradeScan - Christoph Range-Reversion Strategie
+Datenquelle: Stooq.com (kostenlos, kein API-Key, kein Limit!)
 """
 
 import datetime, time, os, requests
 import pandas as pd
+from io import StringIO
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 try:
     import ta
@@ -16,211 +18,207 @@ import json
 
 app = Flask(__name__)
 
-# ── TWELVE DATA API ─────────────────────────────────────────────────────────
-TD_KEY  = os.environ.get("TWELVE_API_KEY", "64ec56108def449bb2422af5f88c5b0e")
-TD_BASE = "https://api.twelvedata.com"
+# Stooq Symbol-Format: ticker.exchange (alles lowercase)
+# .us = NYSE/NASDAQ/OTC  .de = Frankfurt  .uk = London  .fr = Paris
+# .es = Madrid  .it = Milan  .jp = Tokyo  .ca = Toronto
 
-# ── 110 GLOBALE AKTIEN ──────────────────────────────────────────────────────
 TICKERS = [
-    # DAX (Grow Plan $29/Mon fuer XETR-Symbole)
-    ("BAYN:XETR","Bayer AG","DAX"),
-    ("VNA:XETR","Vonovia","DAX"),
-    ("DTE:XETR","Dt. Telekom","DAX"),
-    ("EOAN:XETR","E.ON SE","DAX"),
-    ("RWE:XETR","RWE AG","DAX"),
-    ("HEN3:XETR","Henkel","DAX"),
-    ("MUV2:XETR","Munich Re","DAX"),
-    ("ALV:XETR","Allianz SE","DAX"),
-    ("DBK:XETR","Deutsche Bank","DAX"),
-    ("CBK:XETR","Commerzbank","DAX"),
-    ("BAS:XETR","BASF SE","DAX"),
-    ("BMW:XETR","BMW AG","DAX"),
-    ("MBG:XETR","Mercedes-Benz","DAX"),
-    ("LHA:XETR","Lufthansa","DAX"),
-    ("SIE:XETR","Siemens AG","DAX"),
-    ("ADS:XETR","Adidas","DAX"),
-    ("SHL:XETR","Siemens Health.","DAX"),
-    ("DHER:XETR","Delivery Hero","DAX"),
-    ("ZAL:XETR","Zalando","DAX"),
-    ("CON:XETR","Covestro","DAX"),
-    # UK - ADRs auf NYSE/NASDAQ (kostenloser Plan!)
-    ("SHEL","Shell plc","UK"),
-    ("BP","BP plc","UK"),
-    ("GSK","GSK plc","UK"),
-    ("AZN","AstraZeneca","UK"),
-    ("UL","Unilever","UK"),
-    ("HSBC","HSBC Holdings","UK"),
-    ("LYG","Lloyds Banking","UK"),
-    ("BCS","Barclays","UK"),
-    ("VOD","Vodafone","UK"),
-    ("DEO","Diageo","UK"),
-    ("BTI","Brit. Am. Tobacco","UK"),
-    ("RBGLY","Reckitt","UK"),
-    ("IMBBY","Imperial Brands","UK"),
-    # Europa - ADRs (kostenloser Plan!)
-    ("SAN","Sanofi","EU"),
-    ("TEF","Telefonica","EU"),
-    ("IBE:XMAD","Iberdrola","EU"),
-    ("ENEL:XMIL","Enel SpA","EU"),
-    ("ENI","ENI SpA","EU"),
-    ("UNCFF","UniCredit","EU"),
-    ("BNPQF","BNP Paribas","EU"),
-    ("TTE","TotalEnergies","EU"),
-    ("BUD","AB InBev","EU"),
-    ("PHG","Philips","EU"),
-    ("AFLYY","Air France-KLM","EU"),
-    ("ICAGY","IAG (BA+Iberia)","EU"),
-    ("LRLCY","L'Oreal","EU"),
-    ("SCGLY","Societe Generale","EU"),
-    ("REPYY","Repsol","EU"),
-    ("NVO","Novo Nordisk","EU"),
+    # DAX - Frankfurt
+    ("bayn.de","Bayer AG","DAX"),
+    ("vna.de","Vonovia","DAX"),
+    ("dte.de","Dt. Telekom","DAX"),
+    ("eoan.de","E.ON SE","DAX"),
+    ("rwe.de","RWE AG","DAX"),
+    ("hen3.de","Henkel","DAX"),
+    ("muv2.de","Munich Re","DAX"),
+    ("alv.de","Allianz SE","DAX"),
+    ("dbk.de","Deutsche Bank","DAX"),
+    ("cbk.de","Commerzbank","DAX"),
+    ("bas.de","BASF SE","DAX"),
+    ("bmw.de","BMW AG","DAX"),
+    ("mbg.de","Mercedes-Benz","DAX"),
+    ("lha.de","Lufthansa","DAX"),
+    ("sie.de","Siemens AG","DAX"),
+    ("ads.de","Adidas","DAX"),
+    ("shl.de","Siemens Health.","DAX"),
+    ("dher.de","Delivery Hero","DAX"),
+    ("zal.de","Zalando","DAX"),
+    ("con.de","Covestro","DAX"),
+    # UK - London
+    ("shel.uk","Shell plc","UK"),
+    ("bp.uk","BP plc","UK"),
+    ("gsk.uk","GSK plc","UK"),
+    ("azn.uk","AstraZeneca","UK"),
+    ("ulvr.uk","Unilever","UK"),
+    ("hsba.uk","HSBC Holdings","UK"),
+    ("lloy.uk","Lloyds Banking","UK"),
+    ("barc.uk","Barclays","UK"),
+    ("vod.uk","Vodafone","UK"),
+    ("dge.uk","Diageo","UK"),
+    ("bats.uk","Brit. Am. Tobacco","UK"),
+    ("rkt.uk","Reckitt","UK"),
+    ("imb.uk","Imperial Brands","UK"),
+    # Europa - ADRs (US-listed)
+    ("san.us","Sanofi","EU"),
+    ("tef.us","Telefonica","EU"),
+    ("ibe.es","Iberdrola","EU"),
+    ("enel.it","Enel SpA","EU"),
+    ("eni.us","ENI SpA","EU"),
+    ("bnpqf.us","BNP Paribas","EU"),
+    ("tte.us","TotalEnergies","EU"),
+    ("bud.us","AB InBev","EU"),
+    ("phg.us","Philips","EU"),
+    ("icagy.us","IAG (BA+Iberia)","EU"),
+    ("lrlcy.us","L'Oreal","EU"),
+    ("nvo.us","Novo Nordisk","EU"),
     # USA - alle kostenlos!
-    ("KO","Coca-Cola","US"),
-    ("PEP","PepsiCo","US"),
-    ("PG","Procter & Gamble","US"),
-    ("KHC","Kraft Heinz","US"),
-    ("MDLZ","Mondelez","US"),
-    ("KDP","Keurig Dr Pepper","US"),
-    ("GIS","General Mills","US"),
-    ("CPB","Campbell Soup","US"),
-    ("CL","Colgate-Palmolive","US"),
-    ("JNJ","Johnson & Johnson","US"),
-    ("PFE","Pfizer","US"),
-    ("MRK","Merck & Co.","US"),
-    ("BMY","Bristol-Myers","US"),
-    ("ABBV","AbbVie","US"),
-    ("CVS","CVS Health","US"),
-    ("T","AT&T","US"),
-    ("VZ","Verizon","US"),
-    ("MO","Altria Group","US"),
-    ("IBM","IBM","US"),
-    ("INTC","Intel","US"),
-    ("CVX","Chevron","US"),
-    ("XOM","ExxonMobil","US"),
-    ("AAL","American Airlines","US"),
-    ("DAL","Delta Air Lines","US"),
-    ("UAL","United Airlines","US"),
-    ("LUV","Southwest Airlines","US"),
-    ("ALK","Alaska Air Group","US"),
-    ("JBLU","JetBlue Airways","US"),
-    ("WBA","Walgreens Boots","US"),
-    ("VFC","VF Corporation","US"),
-    # Japan - ADRs (kostenloser Plan!)
-    ("JAPSY","Japan Airlines","Japan"),
-    ("ALNPY","ANA Holdings","Japan"),
-    ("NTTYY","NTT Japan","Japan"),
-    ("KDDIY","KDDI Corp.","Japan"),
-    ("SFTBY","SoftBank Group","Japan"),
-    ("TOYOF","Toyota Motor","Japan"),
-    ("HNDAF","Honda Motor","Japan"),
-    ("SONY","Sony Group","Japan"),
-    ("MUFG","Mitsubishi UFJ","Japan"),
-    ("SMFNF","Sumitomo Mitsui","Japan"),
-    ("TKPHF","Takeda Pharma","Japan"),
-    ("CKHUY","CK Hutchison","Japan"),
-    # Asien-Pazifik - ADRs (kostenloser Plan!)
-    ("SINGY","Singapore Airlines","Asien"),
-    ("RYAAY","Ryanair Holdings","Asien"),
-    ("BHP","BHP Group","Asien"),
-    ("RIO","Rio Tinto","Asien"),
-    ("TELNY","Telstra Group","Asien"),
-    ("ANZBY","ANZ Banking","Asien"),
-    ("CPCAY","Cathay Pacific","Asien"),
-    ("KEP","Korean Air Lines","Asien"),
-    ("LFC","China Life Ins.","Asien"),
-    ("LNVGY","Lenovo Group","Asien"),
-    # Kanada & Latam - NYSE (kostenloser Plan!)
-    ("CNQ","Canadian Nat. Res.","Kanada"),
-    ("SU","Suncor Energy","Kanada"),
-    ("BCE","BCE Inc. (Bell)","Kanada"),
-    ("TU","Telus Corp.","Kanada"),
-    ("ENB","Enbridge Inc.","Kanada"),
-    ("ACDVF","Air Canada","Kanada"),
-    ("LTM","LATAM Airlines","Kanada"),
-    ("VALE","Vale SA","Kanada"),
+    ("ko.us","Coca-Cola","US"),
+    ("pep.us","PepsiCo","US"),
+    ("pg.us","Procter & Gamble","US"),
+    ("khc.us","Kraft Heinz","US"),
+    ("mdlz.us","Mondelez","US"),
+    ("kdp.us","Keurig Dr Pepper","US"),
+    ("gis.us","General Mills","US"),
+    ("cpb.us","Campbell Soup","US"),
+    ("cl.us","Colgate-Palmolive","US"),
+    ("jnj.us","Johnson & Johnson","US"),
+    ("pfe.us","Pfizer","US"),
+    ("mrk.us","Merck & Co.","US"),
+    ("bmy.us","Bristol-Myers","US"),
+    ("abbv.us","AbbVie","US"),
+    ("cvs.us","CVS Health","US"),
+    ("t.us","AT&T","US"),
+    ("vz.us","Verizon","US"),
+    ("mo.us","Altria Group","US"),
+    ("ibm.us","IBM","US"),
+    ("intc.us","Intel","US"),
+    ("cvx.us","Chevron","US"),
+    ("xom.us","ExxonMobil","US"),
+    ("aal.us","American Airlines","US"),
+    ("dal.us","Delta Air Lines","US"),
+    ("ual.us","United Airlines","US"),
+    ("luv.us","Southwest Airlines","US"),
+    ("alk.us","Alaska Air Group","US"),
+    ("jblu.us","JetBlue Airways","US"),
+    ("wba.us","Walgreens Boots","US"),
+    ("vfc.us","VF Corporation","US"),
+    # Japan - ADRs (US-listed)
+    ("japsy.us","Japan Airlines","Japan"),
+    ("alnpy.us","ANA Holdings","Japan"),
+    ("nttyy.us","NTT Japan","Japan"),
+    ("kddiy.us","KDDI Corp.","Japan"),
+    ("sftby.us","SoftBank Group","Japan"),
+    ("toyof.us","Toyota Motor","Japan"),
+    ("hndaf.us","Honda Motor","Japan"),
+    ("sony.us","Sony Group","Japan"),
+    ("mufg.us","Mitsubishi UFJ","Japan"),
+    ("tkphf.us","Takeda Pharma","Japan"),
+    ("ckhuy.us","CK Hutchison","Japan"),
+    # Asien-Pazifik - ADRs
+    ("singy.us","Singapore Airlines","Asien"),
+    ("ryaay.us","Ryanair Holdings","Asien"),
+    ("bhp.us","BHP Group","Asien"),
+    ("rio.us","Rio Tinto","Asien"),
+    ("cpcay.us","Cathay Pacific","Asien"),
+    ("kep.us","Korean Air Lines","Asien"),
+    ("lfc.us","China Life Ins.","Asien"),
+    ("lnvgy.us","Lenovo Group","Asien"),
+    # Kanada & Latam
+    ("cnq.us","Canadian Nat. Res.","Kanada"),
+    ("su.us","Suncor Energy","Kanada"),
+    ("bce.us","BCE Inc. (Bell)","Kanada"),
+    ("tu.us","Telus Corp.","Kanada"),
+    ("enb.us","Enbridge Inc.","Kanada"),
+    ("ltm.us","LATAM Airlines","Kanada"),
+    ("vale.us","Vale SA","Kanada"),
 ]
 
-# Watchlist - alle mit kostenlosem Plan!
 WATCHLIST = [
-    ("JAPSY","Japan Airlines","Japan"),
-    ("ALNPY","ANA Holdings","Japan"),
-    ("SINGY","Singapore Airlines","Asien"),
-    ("AAL","American Airlines","US"),
-    ("DAL","Delta Air Lines","US"),
-    ("KO","Coca-Cola","US"),
-    ("PFE","Pfizer","US"),
-    ("T","AT&T","US"),
-    ("VZ","Verizon","US"),
-    ("VOD","Vodafone","UK"),
-    ("GSK","GSK plc","UK"),
-    ("BP","BP plc","UK"),
-    ("BCE","BCE Inc. (Bell)","Kanada"),
-    ("SAN","Sanofi","EU"),
-    ("TTE","TotalEnergies","EU"),
+    ("japsy.us","Japan Airlines","Japan"),
+    ("alnpy.us","ANA Holdings","Japan"),
+    ("singy.us","Singapore Airlines","Asien"),
+    ("aal.us","American Airlines","US"),
+    ("dal.us","Delta Air Lines","US"),
+    ("ko.us","Coca-Cola","US"),
+    ("pfe.us","Pfizer","US"),
+    ("t.us","AT&T","US"),
+    ("vz.us","Verizon","US"),
+    ("vod.uk","Vodafone","UK"),
+    ("gsk.uk","GSK plc","UK"),
+    ("bp.uk","BP plc","UK"),
+    ("bce.us","BCE Inc. (Bell)","Kanada"),
+    ("san.us","Sanofi","EU"),
+    ("tte.us","TotalEnergies","EU"),
 ]
 
 
-# ── TWELVE DATA: BATCH FETCH ────────────────────────────────────────────────
-def fetch_batch_td(api_symbols):
-    """Holt Kursdaten fuer viele Aktien in EINEM API-Call."""
-    sym_str = ",".join(api_symbols)
-    params = {
-        "symbol":     sym_str,
-        "interval":   "1day",
-        "outputsize": 250,
-        "order":      "ASC",
-        "apikey":     TD_KEY,
-    }
+# ── STOOQ DATEN HOLEN ───────────────────────────────────────────────────────
+def fetch_stooq(stooq_sym):
+    """Holt Kursdaten von Stooq - kostenlos, kein API-Key, kein Limit."""
+    url = f"https://stooq.com/q/d/l/?s={stooq_sym}&i=d"
     try:
-        resp = requests.get(f"{TD_BASE}/time_series", params=params, timeout=45)
-        data = resp.json()
-        if "values" in data:          # Einzelne Aktie
-            data = {api_symbols[0]: data}
-        return data
+        resp = requests.get(url, timeout=20,
+                           headers={"User-Agent": "Mozilla/5.0"})
+        if resp.status_code != 200 or len(resp.text) < 50:
+            return None
+        text = resp.text.strip()
+        if "No data" in text or "Przekroczony" in text:
+            return None
+        df = pd.read_csv(StringIO(text))
+        df.columns = [c.strip() for c in df.columns]
+        if "Close" not in df.columns:
+            return None
+        df = df.sort_values("Date").reset_index(drop=True)
+        df = df[["Open","High","Low","Close"]].astype(float)
+        return df
     except Exception as e:
-        print(f"  TD API Fehler: {e}", flush=True)
-        return {}
+        return None
 
 
-def build_df(values_list):
-    """Wandelt Twelve Data JSON in pandas DataFrame um."""
-    rows = [{
-        "Close": float(v["close"]),
-        "High":  float(v["high"]),
-        "Low":   float(v["low"]),
-        "Open":  float(v["open"]),
-    } for v in values_list]
-    return pd.DataFrame(rows)
+def fetch_all_parallel(pairs):
+    """Holt alle Aktien parallel - sehr schnell."""
+    results = {}
+    with ThreadPoolExecutor(max_workers=15) as executor:
+        future_map = {
+            executor.submit(fetch_stooq, p[0]): p
+            for p in pairs
+        }
+        for future in as_completed(future_map):
+            p = future_map[future]
+            df = future.result()
+            if df is not None and len(df) >= 60:
+                results[p[0]] = df
+                print(f"  OK: {p[0]} ({len(df)} Tage)", flush=True)
+            else:
+                print(f"  Keine Daten: {p[0]}", flush=True)
+    return results
 
 
 # ── ANALYSE ─────────────────────────────────────────────────────────────────
-def analyze_df(display_ticker, name, market, df):
+def analyze_df(stooq_sym, name, market, df):
     try:
-        if df is None or len(df) < 60:
-            return None
-
         close = df["Close"]
         high  = df["High"]
         low   = df["Low"]
 
-        bb      = ta.volatility.BollingerBands(close=close, window=20, window_dev=2.0)
-        bb_lo   = bb.bollinger_lband()
-        bb_hi   = bb.bollinger_hband()
-        bb_mi   = bb.bollinger_mavg()
-        bb_pct  = bb.bollinger_pband()
-        rsi     = ta.momentum.RSIIndicator(close=close, window=14).rsi()
-        ma200   = close.rolling(200).mean()
-        atr_i   = ta.volatility.AverageTrueRange(high=high, low=low, close=close, window=14)
-        atr_val = float(atr_i.average_true_range().iloc[-1])
+        bb     = ta.volatility.BollingerBands(close=close, window=20, window_dev=2.0)
+        bb_lo  = bb.bollinger_lband()
+        bb_hi  = bb.bollinger_hband()
+        bb_mi  = bb.bollinger_mavg()
+        bb_pct = bb.bollinger_pband()
+        rsi    = ta.momentum.RSIIndicator(close=close, window=14).rsi()
+        ma200  = close.rolling(200).mean()
+        atr_i  = ta.volatility.AverageTrueRange(high=high,low=low,close=close,window=14)
+        atr_val= float(atr_i.average_true_range().iloc[-1])
 
         price     = float(close.iloc[-1])
         prev      = float(close.iloc[-2])
-        chg       = round((price - prev) / prev * 100, 2)
+        chg       = round((price-prev)/prev*100, 2)
         rsi_now   = round(float(rsi.iloc[-1]), 1)
         bb_lo_now = float(bb_lo.iloc[-1])
         bb_hi_now = float(bb_hi.iloc[-1])
         bb_mi_now = float(bb_mi.iloc[-1])
-        bb_p_now  = round(float(bb_pct.iloc[-1]) * 100, 1)
+        bb_p_now  = round(float(bb_pct.iloc[-1])*100, 1)
         ma200_now = float(ma200.iloc[-1])
 
         prev_below = float(close.iloc[-2]) < float(bb_lo.iloc[-2])
@@ -236,8 +234,8 @@ def analyze_df(display_ticker, name, market, df):
         stop_atr_pct = round((price - stop_atr) / price * 100, 1)
         target1      = round(bb_mi_now, 2)
         target2      = round(bb_hi_now, 2)
-        pot1         = round((target1 - price) / price * 100, 1)
-        pot2         = round((target2 - price) / price * 100, 1)
+        pot1         = round((target1-price)/price*100, 1)
+        pot2         = round((target2-price)/price*100, 1)
         fut_entry    = round(bb_lo_now * 0.99, 2)
         fut_stop     = round(fut_entry * 0.92, 2)
 
@@ -259,8 +257,21 @@ def analyze_df(display_ticker, name, market, df):
         low52  = float(close.rolling(min(252,len(close))).min().iloc[-1])
         pos52  = round((price-low52)/(high52-low52)*100,1) if high52!=low52 else 50
 
-        currency  = "EUR" if market in ("DAX","EU") else "USD"
-        price_fmt = f"{price:,.2f} EUR" if currency=="EUR" else f"${price:,.2f}"
+        # Waehrung: .de / .fr / .es / .it / .nl -> EUR, sonst USD
+        eur_exchanges = (".de",".fr",".es",".it",".nl",".at",".be")
+        gbp_exchanges = (".uk",)
+        if any(stooq_sym.endswith(e) for e in eur_exchanges):
+            currency = "EUR"
+            price_fmt = f"{price:,.2f} EUR"
+        elif any(stooq_sym.endswith(e) for e in gbp_exchanges):
+            currency = "GBP"
+            price_fmt = f"{price:,.2f} GBP"
+        else:
+            currency = "USD"
+            price_fmt = f"${price:,.2f}"
+
+        # Display ticker = alles vor dem ersten Punkt, uppercase
+        display_ticker = stooq_sym.split(".")[0].upper()
 
         return {
             "ticker": display_ticker, "name": name, "market": market,
@@ -280,7 +291,7 @@ def analyze_df(display_ticker, name, market, df):
             "cond_bb": cond_bb, "cond_rsi": cond_rsi, "cond_trend": cond_trend,
         }
     except Exception as e:
-        print(f"  Analyse-Fehler {display_ticker}: {e}", flush=True)
+        print(f"  Analyse-Fehler {stooq_sym}: {e}", flush=True)
         return None
 
 
@@ -289,30 +300,17 @@ ORDER = {"KAUFEN":0,"FAST":1,"BEOBACHTEN":2,"VERKAUFEN":3,"NEUTRAL":4}
 
 
 def do_scan(pairs):
-    """Holt alle Kursdaten per Batch-Call, analysiert dann jeden Titel."""
-    api_syms = [p[0] for p in pairs]
-    all_data = {}
-
-    # Max 100 Symbole pro Batch-Call
-    for i in range(0, len(api_syms), 100):
-        batch = api_syms[i:i+100]
-        print(f"  Batch {i//100+1}: {len(batch)} Aktien von Twelve Data...", flush=True)
-        td_resp = fetch_batch_td(batch)
-        all_data.update(td_resp)
-        if i + 100 < len(api_syms):
-            time.sleep(2)
-
-    print(f"  Daten fuer {len(all_data)} Symbole erhalten. Berechne Signale...", flush=True)
+    """Holt alle Kursdaten parallel von Stooq, analysiert dann."""
+    print(f"  Stooq-Scan: {len(pairs)} Aktien parallel...", flush=True)
+    all_data = fetch_all_parallel(pairs)
+    print(f"  {len(all_data)}/{len(pairs)} Aktien erfolgreich geladen.", flush=True)
 
     results = []
-    for api_sym, name, market in pairs:
-        sym_data = all_data.get(api_sym, {})
-        if sym_data.get("status") != "ok":
-            print(f"  Kein Zugriff: {api_sym} ({sym_data.get('message','')})", flush=True)
+    for stooq_sym, name, market in pairs:
+        df = all_data.get(stooq_sym)
+        if df is None:
             continue
-        df = build_df(sym_data["values"])
-        display_tick = api_sym.split(":")[0]
-        r = analyze_df(display_tick, name, market, df)
+        r = analyze_df(stooq_sym, name, market, df)
         if r:
             results.append(r)
 
@@ -322,8 +320,6 @@ def do_scan(pairs):
     CACHE["scanning"] = False
     print(f"Scan fertig: {len(results)} Aktien analysiert.", flush=True)
 
-
-# ── HTML TEMPLATE ─────────────────────────────────────────────────────────────
 TEMPLATE = """<!DOCTYPE html>
 <html lang="de">
 <head>
@@ -731,6 +727,27 @@ def scan_wl():
         CACHE["scanning"] = True
         threading.Thread(target=do_scan, args=(WATCHLIST,), daemon=True).start()
     return redirect("/?scanning=1")
+
+# ── AUTO-SCAN SCHEDULER ──────────────────────────────────────────────────────
+def auto_scan():
+    if not CACHE.get("scanning"):
+        import threading
+        print(f"  Auto-Scan: {datetime.datetime.now().strftime('%H:%M')} Uhr", flush=True)
+        CACHE["scanning"] = True
+        threading.Thread(target=do_scan, args=(TICKERS,), daemon=True).start()
+
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    import pytz
+    scheduler = BackgroundScheduler(timezone=pytz.timezone("Europe/Berlin"))
+    scheduler.add_job(auto_scan, "cron", hour=9,  minute=0)
+    scheduler.add_job(auto_scan, "cron", hour=12, minute=30)
+    scheduler.add_job(auto_scan, "cron", hour=16, minute=30)
+    scheduler.add_job(auto_scan, "cron", hour=20, minute=0)
+    scheduler.start()
+    print("Scheduler aktiv: 09:00 | 12:30 | 16:30 | 20:00 Uhr (Berlin)", flush=True)
+except Exception as e:
+    print(f"Scheduler Fehler: {e}", flush=True)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
