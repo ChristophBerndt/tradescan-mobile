@@ -1,5 +1,6 @@
 """
 TradeScan Mobile - Christoph Range-Reversion Strategie
+Mit ATR Stop-Loss Berechnung
 """
 
 import datetime, time, os
@@ -86,15 +87,25 @@ def analyze(ticker, name, market):
         if df.empty or len(df) < 60:
             return None
 
-        close = df["Close"].squeeze()
-        bb    = ta.volatility.BollingerBands(close=close, window=20, window_dev=2.0)
-        bb_lo = bb.bollinger_lband()
-        bb_hi = bb.bollinger_hband()
-        bb_mi = bb.bollinger_mavg()
-        bb_pct= bb.bollinger_pband()
-        rsi   = ta.momentum.RSIIndicator(close=close, window=14).rsi()
-        ma200 = close.rolling(200).mean()
+        close  = df["Close"].squeeze()
+        high   = df["High"].squeeze()
+        low    = df["Low"].squeeze()
 
+        # Indikatoren
+        bb     = ta.volatility.BollingerBands(close=close, window=20, window_dev=2.0)
+        bb_lo  = bb.bollinger_lband()
+        bb_hi  = bb.bollinger_hband()
+        bb_mi  = bb.bollinger_mavg()
+        bb_pct = bb.bollinger_pband()
+        rsi    = ta.momentum.RSIIndicator(close=close, window=14).rsi()
+        ma200  = close.rolling(200).mean()
+
+        # ATR berechnen (14 Tage)
+        atr_ind = ta.volatility.AverageTrueRange(high=high, low=low, close=close, window=14)
+        atr_val = float(atr_ind.average_true_range().iloc[-1])
+        atr_pct = round(atr_val / float(close.iloc[-1]) * 100, 1)
+
+        # Aktuelle Werte
         price     = float(close.iloc[-1])
         prev      = float(close.iloc[-2])
         chg       = round((price - prev) / prev * 100, 2)
@@ -105,18 +116,33 @@ def analyze(ticker, name, market):
         bb_p_now  = round(float(bb_pct.iloc[-1]) * 100, 1)
         ma200_now = float(ma200.iloc[-1])
 
-        # Kern-Signal: gestern unter BB, heute wieder drüber
+        # Kern-Signal
         prev_below = float(close.iloc[-2]) < float(bb_lo.iloc[-2])
         now_above  = price > bb_lo_now
-
         cond_bb    = prev_below and now_above
         cond_rsi   = rsi_now < 35
         cond_trend = price > ma200_now
         score      = sum([cond_bb, cond_rsi, cond_trend])
-
         sell_signal = rsi_now > 65 and bb_p_now > 85
 
-        # Wann wäre Einstieg möglich? (für "noch nicht"-Karten)
+        # Stop-Loss Varianten
+        stop_fix   = round(price * 0.92, 2)                    # 8% fix
+        stop_atr   = round(price - (2 * atr_val), 2)           # 2x ATR
+        stop_fix_pct = 8.0
+        stop_atr_pct = round((price - stop_atr) / price * 100, 1)
+
+        # Ziele
+        target1    = round(bb_mi_now, 2)
+        target2    = round(bb_hi_now, 2)
+        potential1 = round((target1 - price) / price * 100, 1)
+        potential2 = round((target2 - price) / price * 100, 1)
+
+        # Zukünftiger Einstieg
+        future_entry = round(bb_lo_now * 0.99, 2)
+        future_stop_fix = round(future_entry * 0.92, 2)
+        future_stop_atr = round(future_entry - (2 * atr_val), 2)
+
+        # Was fehlt noch
         entry_when = []
         if not cond_bb:
             entry_when.append(f"Preis fällt unter {round(bb_lo_now,2)} und erholt sich")
@@ -127,74 +153,54 @@ def analyze(ticker, name, market):
 
         # Signal
         if score == 3:
-            signal = "KAUFEN"
-            color  = "#00d4aa"
-            label  = "Jetzt kaufen"
+            signal = "KAUFEN";  color = "#00d4aa"; label = "Jetzt kaufen"
         elif score == 2:
-            signal = "FAST"
-            color  = "#f7b731"
-            label  = "Morgen prüfen"
+            signal = "FAST";    color = "#f7b731"; label = "Morgen prüfen"
         elif score == 1 and cond_bb:
-            signal = "BEOBACHTEN"
-            color  = "#4a9eff"
-            label  = "Beobachten"
+            signal = "BEOBACHTEN"; color = "#4a9eff"; label = "Beobachten"
         elif sell_signal:
-            signal = "VERKAUFEN"
-            color  = "#ff4757"
-            label  = "Jetzt verkaufen"
+            signal = "VERKAUFEN"; color = "#ff4757"; label = "Jetzt verkaufen"
         else:
-            signal = "NEUTRAL"
-            color  = "#5a6478"
-            label  = "Abwarten"
-
-        # Ziele (immer berechnen, auch für noch-nicht-Signale)
-        stop_loss  = round(price * 0.92, 2)
-        target1    = round(bb_mi_now, 2)
-        target2    = round(bb_hi_now, 2)
-        potential1 = round((target1 - price) / price * 100, 1)
-        potential2 = round((target2 - price) / price * 100, 1)
-
-        # Wann würde Einstiegspreis ungefähr sein?
-        future_entry = round(bb_lo_now * 0.99, 2)  # ca. an unterer BB
+            signal = "NEUTRAL"; color = "#5a6478"; label = "Abwarten"
 
         high52 = float(close.rolling(min(252,len(close))).max().iloc[-1])
         low52  = float(close.rolling(min(252,len(close))).min().iloc[-1])
         pos52  = round((price - low52) / (high52 - low52) * 100, 1) if high52 != low52 else 50
 
-        conditions = [
-            ("BB-Umkehr (unter BB → wieder drüber)", cond_bb),
-            (f"RSI {rsi_now} unter 35", cond_rsi),
-            (f"Aufwärtstrend (über MA200)", cond_trend),
-        ]
-
         return {
-            "ticker":       ticker,
-            "name":         name,
-            "market":       market,
-            "price":        round(price, 2),
-            "change":       chg,
-            "rsi":          rsi_now,
-            "bb_pct":       bb_p_now,
-            "bb_lower":     round(bb_lo_now, 2),
-            "bb_upper":     round(bb_hi_now, 2),
-            "bb_mid":       round(bb_mi_now, 2),
-            "ma200":        round(ma200_now, 2),
-            "pos52":        pos52,
-            "signal":       signal,
-            "color":        color,
-            "label":        label,
-            "score":        score,
-            "conditions":   conditions,
-            "stop_loss":    stop_loss,
-            "target1":      target1,
-            "target2":      target2,
-            "potential1":   potential1,
-            "potential2":   potential2,
-            "future_entry": future_entry,
-            "entry_when":   entry_when,
-            "cond_bb":      cond_bb,
-            "cond_rsi":     cond_rsi,
-            "cond_trend":   cond_trend,
+            "ticker":         ticker,
+            "name":           name,
+            "market":         market,
+            "price":          round(price, 2),
+            "change":         chg,
+            "rsi":            rsi_now,
+            "bb_pct":         bb_p_now,
+            "bb_lower":       round(bb_lo_now, 2),
+            "bb_upper":       round(bb_hi_now, 2),
+            "bb_mid":         round(bb_mi_now, 2),
+            "ma200":          round(ma200_now, 2),
+            "pos52":          pos52,
+            "atr":            round(atr_val, 2),
+            "atr_pct":        atr_pct,
+            "signal":         signal,
+            "color":          color,
+            "label":          label,
+            "score":          score,
+            "stop_fix":       stop_fix,
+            "stop_atr":       stop_atr,
+            "stop_fix_pct":   stop_fix_pct,
+            "stop_atr_pct":   stop_atr_pct,
+            "target1":        target1,
+            "target2":        target2,
+            "potential1":     potential1,
+            "potential2":     potential2,
+            "future_entry":   future_entry,
+            "future_stop_fix":future_stop_fix,
+            "future_stop_atr":future_stop_atr,
+            "entry_when":     entry_when,
+            "cond_bb":        cond_bb,
+            "cond_rsi":       cond_rsi,
+            "cond_trend":     cond_trend,
         }
     except Exception as e:
         print(f"  Fehler {ticker}: {e}")
@@ -208,7 +214,8 @@ def do_scan(pairs):
     for ticker, name, market in pairs:
         print(f"  {ticker}...", flush=True)
         r = analyze(ticker, name, market)
-        if r: results.append(r)
+        if r:
+            results.append(r)
     results.sort(key=lambda x: (ORDER.get(x["signal"],9), -x["score"]))
     CACHE["data"] = results
     CACHE["time"] = datetime.datetime.now()
@@ -248,7 +255,7 @@ body{background:#0a0c0f;color:#e8eaf0;font-family:-apple-system,BlinkMacSystemFo
 .badge{padding:5px 12px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap}
 .pr-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
 .price{font-size:20px;font-weight:700}
-.up{color:#00d4aa}.dn{color:#ff4757}.am{color:#f7b731}
+.up{color:#00d4aa}.dn{color:#ff4757}.am{color:#f7b731}.bl{color:#4a9eff}
 .checks{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-bottom:10px}
 .ck{border-radius:7px;padding:7px 4px;text-align:center}
 .ck-icon{font-size:15px;margin-bottom:2px}
@@ -258,7 +265,15 @@ body{background:#0a0c0f;color:#e8eaf0;font-family:-apple-system,BlinkMacSystemFo
 .row:last-child{border-bottom:none}
 .rl{color:#5a6478}
 .hint{font-size:11px;border-radius:7px;padding:8px 10px;margin-bottom:8px;line-height:1.5}
-.future-box{background:#111318;border:1px solid #1e2530;border-radius:8px;padding:10px;margin-bottom:8px}
+.stop-box{background:#0a0c0f;border:1px solid #1e2530;border-radius:8px;padding:10px;margin-bottom:8px}
+.stop-title{font-size:10px;color:#5a6478;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;font-weight:700}
+.stop-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stop-card{background:#111318;border-radius:7px;padding:8px}
+.stop-label{font-size:10px;color:#5a6478;margin-bottom:4px}
+.stop-val{font-size:14px;font-weight:700;color:#ff4757}
+.stop-pct{font-size:11px;color:#5a6478;margin-top:2px}
+.stop-rec{font-size:10px;margin-top:4px;padding:3px 6px;border-radius:4px;display:inline-block}
+.future-box{background:#0a0c0f;border:1px solid #1e2530;border-radius:8px;padding:10px;margin-bottom:8px}
 .future-title{font-size:10px;color:#5a6478;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
 .future-row{display:flex;justify-content:space-between;padding:4px 0;font-size:12px;border-bottom:1px solid rgba(255,255,255,0.04)}
 .future-row:last-child{border-bottom:none}
@@ -268,6 +283,7 @@ body{background:#0a0c0f;color:#e8eaf0;font-family:-apple-system,BlinkMacSystemFo
 </style>
 </head>
 <body>
+
 <div class="header">
   <div class="logo">TRADE<span>SCAN</span></div>
   <div class="scan-time">{{ scan_time }}</div>
@@ -347,11 +363,37 @@ body{background:#0a0c0f;color:#e8eaf0;font-family:-apple-system,BlinkMacSystemFo
   </div>
   <div class="box" style="background:#00d4aa0a;border:1px solid #00d4aa22">
     <div class="row"><span class="rl">Kaufen bei</span><span style="font-weight:700">{{ "%.2f"|format(r.price) }}</span></div>
-    <div class="row"><span class="rl">Stop-Loss (−8%)</span><span class="dn">{{ "%.2f"|format(r.stop_loss) }}</span></div>
     <div class="row"><span class="rl">Ziel 1 — MA20</span><span class="up">{{ "%.2f"|format(r.target1) }} ({{ "%+.1f"|format(r.potential1) }}%)</span></div>
     <div class="row"><span class="rl">Ziel 2 — ob. BB</span><span class="up">{{ "%.2f"|format(r.target2) }} ({{ "%+.1f"|format(r.potential2) }}%)</span></div>
     <div class="row"><span class="rl">Haltedauer</span><span>2–6 Wochen</span></div>
-    <div class="row"><span class="rl">Trend (MA200)</span><span class="{{ 'up' if r.price > r.ma200 else 'dn' }}">{{ '↑ Aufwärts' if r.price > r.ma200 else '↓ Abwärts' }}</span></div>
+    <div class="row"><span class="rl">ATR (Tagesschw.)</span><span class="bl">{{ "%.2f"|format(r.atr) }} ({{ r.atr_pct }}%)</span></div>
+  </div>
+
+  <div class="stop-box">
+    <div class="stop-title">Stop-Loss Vergleich — wähle einen</div>
+    <div class="stop-grid">
+      <div class="stop-card">
+        <div class="stop-label">Fixer Stop (8%)</div>
+        <div class="stop-val">{{ "%.2f"|format(r.stop_fix) }}</div>
+        <div class="stop-pct">−{{ r.stop_fix_pct }}% vom Einstieg</div>
+        <div class="stop-rec" style="background:#5a647822;color:#5a6478">Einfach & sicher</div>
+      </div>
+      <div class="stop-card">
+        <div class="stop-label">ATR Stop (2× ATR)</div>
+        <div class="stop-val">{{ "%.2f"|format(r.stop_atr) }}</div>
+        <div class="stop-pct">−{{ r.stop_atr_pct }}% vom Einstieg</div>
+        <div class="stop-rec" style="background:#4a9eff22;color:#4a9eff">Profi-Methode</div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:#5a6478;margin-top:8px;line-height:1.5">
+      {% if r.stop_atr_pct < 6 %}
+      ATR Stop ist enger → Aktie ist ruhig. Für Anfänger: nimm den ATR Stop.
+      {% elif r.stop_atr_pct > 10 %}
+      ATR Stop ist weiter → Aktie ist volatil. Für Anfänger: nimm den fixen 8% Stop.
+      {% else %}
+      Beide Stops sind ähnlich. Nimm den ATR Stop — er passt sich der Aktie an.
+      {% endif %}
+    </div>
   </div>
 
   {% elif r.signal == 'VERKAUFEN' %}
@@ -368,14 +410,26 @@ body{background:#0a0c0f;color:#e8eaf0;font-family:-apple-system,BlinkMacSystemFo
 
   <div class="future-box">
     <div class="future-title">Wo wäre der Einstieg wenn Signal kommt?</div>
-    <div class="future-row"><span class="rl">Möglicher Einstieg</span><span style="color:#4a9eff">ca. {{ "%.2f"|format(r.future_entry) }}</span></div>
-    <div class="future-row"><span class="rl">Stop-Loss dann (−8%)</span><span class="dn">ca. {{ "%.2f"|format(r.future_entry * 0.92) | round(2) }}</span></div>
+    <div class="future-row"><span class="rl">Möglicher Einstieg</span><span class="bl">ca. {{ "%.2f"|format(r.future_entry) }}</span></div>
     <div class="future-row"><span class="rl">Ziel 1 — MA20</span><span class="up">{{ "%.2f"|format(r.target1) }} ({{ "%+.1f"|format((r.target1 - r.future_entry) / r.future_entry * 100) }}%)</span></div>
     <div class="future-row"><span class="rl">Ziel 2 — ob. BB</span><span class="up">{{ "%.2f"|format(r.target2) }} ({{ "%+.1f"|format((r.target2 - r.future_entry) / r.future_entry * 100) }}%)</span></div>
-    <div style="margin-top:8px;border-top:1px solid #1e2530;padding-top:8px">
+    <div class="future-row"><span class="rl">ATR (Tagesschw.)</span><span class="bl">{{ "%.2f"|format(r.atr) }} ({{ r.atr_pct }}%)</span></div>
+    <div style="margin-top:8px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
+        <div style="background:#111318;border-radius:6px;padding:7px">
+          <div style="font-size:10px;color:#5a6478;margin-bottom:3px">Stop fix (8%)</div>
+          <div style="font-size:13px;font-weight:700;color:#ff4757">{{ "%.2f"|format(r.future_stop_fix) }}</div>
+        </div>
+        <div style="background:#111318;border-radius:6px;padding:7px">
+          <div style="font-size:10px;color:#5a6478;margin-bottom:3px">Stop ATR (2×)</div>
+          <div style="font-size:13px;font-weight:700;color:#ff4757">{{ "%.2f"|format(r.future_stop_atr) }}</div>
+        </div>
+      </div>
+    </div>
+    <div style="border-top:1px solid #1e2530;padding-top:8px">
       <div class="future-title" style="margin-bottom:4px">Was muss noch passieren?</div>
       {% for w in r.entry_when %}
-      <div class="when-item"><span style="color:#4a9eff">→</span><span>{{ w }}</span></div>
+      <div class="when-item"><span class="bl">→</span><span>{{ w }}</span></div>
       {% endfor %}
     </div>
   </div>
@@ -397,12 +451,12 @@ def index():
     f    = request.args.get("f", "all")
     now  = CACHE["time"]
 
-    if f == "kaufen":    show = [r for r in data if r["signal"] == "KAUFEN"]
-    elif f == "fast":    show = [r for r in data if r["signal"] == "FAST"]
+    if f == "kaufen":       show = [r for r in data if r["signal"] == "KAUFEN"]
+    elif f == "fast":       show = [r for r in data if r["signal"] == "FAST"]
     elif f == "beobachten": show = [r for r in data if r["signal"] == "BEOBACHTEN"]
-    elif f == "dax":     show = [r for r in data if r["market"] == "DAX"]
-    elif f == "us":      show = [r for r in data if r["market"] == "US"]
-    else:                show = data
+    elif f == "dax":        show = [r for r in data if r["market"] == "DAX"]
+    elif f == "us":         show = [r for r in data if r["market"] == "US"]
+    else:                   show = data
 
     groups = [
         ("Jetzt kaufen — alle 3 Bedingungen erfüllt", [r for r in show if r["signal"]=="KAUFEN"]),
