@@ -1,6 +1,6 @@
 """
 TradeScan Mobile - Christoph Range-Reversion Strategie
-Mit ATR Stop-Loss Berechnung
+Neues Design: ING DiBa inspiriert, 110 globale Aktien
 """
 
 import datetime, time, os
@@ -16,72 +16,154 @@ from flask import Flask, render_template_string, request, redirect
 
 app = Flask(__name__)
 
+# ── 110 GLOBALE AKTIEN ─────────────────────────────────────────────────────
 TICKERS = [
-    ("SAP.DE",   "SAP SE",            "DAX"),
-    ("ALV.DE",   "Allianz",           "DAX"),
-    ("DTE.DE",   "Dt. Telekom",       "DAX"),
-    ("BAYN.DE",  "Bayer AG",          "DAX"),
-    ("VNA.DE",   "Vonovia",           "DAX"),
-    ("DBK.DE",   "Deutsche Bank",     "DAX"),
-    ("EOAN.DE",  "E.ON",              "DAX"),
-    ("RWE.DE",   "RWE AG",            "DAX"),
-    ("CON.DE",   "Continental",       "DAX"),
-    ("MBG.DE",   "Mercedes-Benz",     "DAX"),
-    ("BMW.DE",   "BMW AG",            "DAX"),
-    ("BAS.DE",   "BASF SE",           "DAX"),
-    ("SIE.DE",   "Siemens AG",        "DAX"),
-    ("IFX.DE",   "Infineon",          "DAX"),
-    ("MUV2.DE",  "Munich Re",         "DAX"),
-    ("ADS.DE",   "Adidas",            "DAX"),
-    ("HEN3.DE",  "Henkel",            "DAX"),
-    ("ZAL.DE",   "Zalando",           "DAX"),
-    ("PUM.DE",   "Puma SE",           "DAX"),
-    ("LHA.DE",   "Lufthansa",         "DAX"),
-    ("CBK.DE",   "Commerzbank",       "DAX"),
-    ("KO",       "Coca-Cola",         "US"),
-    ("PEP",      "PepsiCo",           "US"),
-    ("PG",       "Procter & Gamble",  "US"),
-    ("JNJ",      "Johnson & Johnson", "US"),
-    ("MCD",      "McDonald's",        "US"),
-    ("T",        "AT&T",              "US"),
-    ("VZ",       "Verizon",           "US"),
-    ("PFE",      "Pfizer",            "US"),
-    ("INTC",     "Intel",             "US"),
-    ("IBM",      "IBM",               "US"),
-    ("CVX",      "Chevron",           "US"),
-    ("XOM",      "ExxonMobil",        "US"),
-    ("MO",       "Altria Group",      "US"),
-    ("AAL",      "American Airlines", "US"),
-    ("DAL",      "Delta Air Lines",   "US"),
-    ("UAL",      "United Airlines",   "US"),
-    ("LUV",      "Southwest",         "US"),
-    ("JBLU",     "JetBlue",           "US"),
-    ("RYAAY",    "Ryanair",           "US"),
-    ("SNAP",     "Snap Inc",          "US"),
-    ("PLTR",     "Palantir",          "US"),
-    ("SOFI",     "SoFi",              "US"),
-    ("SAN.PA",   "Sanofi",            "EU"),
-    ("TTE.PA",   "TotalEnergies",     "EU"),
-    ("BNP.PA",   "BNP Paribas",       "EU"),
-    ("AF.PA",    "Air France-KLM",    "EU"),
+    # 🇩🇪 DAX (20)
+    ("BAYN.DE",  "Bayer AG",           "DAX"),
+    ("VNA.DE",   "Vonovia",            "DAX"),
+    ("DTE.DE",   "Dt. Telekom",        "DAX"),
+    ("EOAN.DE",  "E.ON SE",            "DAX"),
+    ("RWE.DE",   "RWE AG",             "DAX"),
+    ("HEN3.DE",  "Henkel",             "DAX"),
+    ("MUV2.DE",  "Munich Re",          "DAX"),
+    ("ALV.DE",   "Allianz SE",         "DAX"),
+    ("DBK.DE",   "Deutsche Bank",      "DAX"),
+    ("CBK.DE",   "Commerzbank",        "DAX"),
+    ("BAS.DE",   "BASF SE",            "DAX"),
+    ("BMW.DE",   "BMW AG",             "DAX"),
+    ("MBG.DE",   "Mercedes-Benz",      "DAX"),
+    ("LHA.DE",   "Lufthansa",          "DAX"),
+    ("SIE.DE",   "Siemens AG",         "DAX"),
+    ("ADS.DE",   "Adidas",             "DAX"),
+    ("SHL.DE",   "Siemens Health.",    "DAX"),
+    ("DHER.DE",  "Delivery Hero",      "DAX"),
+    ("ZAL.DE",   "Zalando",            "DAX"),
+    ("CON.DE",   "Covestro",           "DAX"),
+    # 🇬🇧 UK FTSE (14)
+    ("SHEL",     "Shell plc",          "UK"),
+    ("BP",       "BP plc",             "UK"),
+    ("GSK",      "GSK plc",            "UK"),
+    ("AZN",      "AstraZeneca",        "UK"),
+    ("UL",       "Unilever",           "UK"),
+    ("HSBC",     "HSBC Holdings",      "UK"),
+    ("LYG",      "Lloyds Banking",     "UK"),
+    ("BCS",      "Barclays",           "UK"),
+    ("VOD",      "Vodafone",           "UK"),
+    ("BT",       "BT Group",           "UK"),
+    ("DEO",      "Diageo",             "UK"),
+    ("BTI",      "Brit. Am. Tobacco",  "UK"),
+    ("RBGLY",    "Reckitt",            "UK"),
+    ("IMBBY",    "Imperial Brands",    "UK"),
+    # 🇪🇺 Europa (16)
+    ("SAN.PA",   "Sanofi",             "EU"),
+    ("TEF",      "Telefónica",         "EU"),
+    ("IBE.MC",   "Iberdrola",          "EU"),
+    ("ENEL.MI",  "Enel SpA",           "EU"),
+    ("ENI",      "ENI SpA",            "EU"),
+    ("UNCFF",    "UniCredit",          "EU"),
+    ("BNPQF",    "BNP Paribas",        "EU"),
+    ("TTE",      "TotalEnergies",      "EU"),
+    ("BUD",      "AB InBev",           "EU"),
+    ("PHG",      "Philips",            "EU"),
+    ("AFLYY",    "Air France-KLM",     "EU"),
+    ("ICAGY",    "IAG (BA+Iberia)",    "EU"),
+    ("LRLCY",    "L'Oreal",            "EU"),
+    ("SCGLY",    "Societe Generale",   "EU"),
+    ("REPYY",    "Repsol",             "EU"),
+    ("NVO",      "Novo Nordisk",       "EU"),
+    # 🇺🇸 USA S&P 500 (30)
+    ("KO",       "Coca-Cola",          "US"),
+    ("PEP",      "PepsiCo",            "US"),
+    ("PG",       "Procter & Gamble",   "US"),
+    ("KHC",      "Kraft Heinz",        "US"),
+    ("MDLZ",     "Mondelez",           "US"),
+    ("KDP",      "Keurig Dr Pepper",   "US"),
+    ("GIS",      "General Mills",      "US"),
+    ("CPB",      "Campbell Soup",      "US"),
+    ("CL",       "Colgate-Palmolive",  "US"),
+    ("JNJ",      "Johnson & Johnson",  "US"),
+    ("PFE",      "Pfizer",             "US"),
+    ("MRK",      "Merck & Co.",        "US"),
+    ("BMY",      "Bristol-Myers",      "US"),
+    ("ABBV",     "AbbVie",             "US"),
+    ("CVS",      "CVS Health",         "US"),
+    ("T",        "AT&T",               "US"),
+    ("VZ",       "Verizon",            "US"),
+    ("MO",       "Altria Group",       "US"),
+    ("IBM",      "IBM",                "US"),
+    ("INTC",     "Intel",              "US"),
+    ("CVX",      "Chevron",            "US"),
+    ("XOM",      "ExxonMobil",         "US"),
+    ("AAL",      "American Airlines",  "US"),
+    ("DAL",      "Delta Air Lines",    "US"),
+    ("UAL",      "United Airlines",    "US"),
+    ("LUV",      "Southwest Airlines", "US"),
+    ("ALK",      "Alaska Air Group",   "US"),
+    ("JBLU",     "JetBlue Airways",    "US"),
+    ("WBA",      "Walgreens Boots",    "US"),
+    ("VFC",      "VF Corporation",     "US"),
+    # 🇯🇵 Japan ADR (12)
+    ("JAPSY",    "Japan Airlines",     "Japan"),
+    ("ALNPY",    "ANA Holdings",       "Japan"),
+    ("NTTYY",    "NTT Japan",          "Japan"),
+    ("KDDIY",    "KDDI Corp.",         "Japan"),
+    ("SFTBY",    "SoftBank Group",     "Japan"),
+    ("TOYOF",    "Toyota Motor",       "Japan"),
+    ("HNDAF",    "Honda Motor",        "Japan"),
+    ("SONY",     "Sony Group",         "Japan"),
+    ("MUFG",     "Mitsubishi UFJ",     "Japan"),
+    ("SMFNF",    "Sumitomo Mitsui",    "Japan"),
+    ("TKPHF",    "Takeda Pharma",      "Japan"),
+    ("CKHUY",    "CK Hutchison",       "Japan"),
+    # 🌏 Asien-Pazifik ADR (10)
+    ("SINGY",    "Singapore Airlines", "Asien"),
+    ("RYAAY",    "Ryanair Holdings",   "Asien"),
+    ("BHP",      "BHP Group",          "Asien"),
+    ("RIO",      "Rio Tinto",          "Asien"),
+    ("TELNY",    "Telstra Group",      "Asien"),
+    ("WBK",      "Westpac Banking",    "Asien"),
+    ("CPCAY",    "Cathay Pacific",     "Asien"),
+    ("KEP",      "Korean Air Lines",   "Asien"),
+    ("LFC",      "China Life Ins.",    "Asien"),
+    ("LNVGY",    "Lenovo Group",       "Asien"),
+    # 🇨🇦 Kanada & Latam (8)
+    ("CNQ",      "Canadian Nat. Res.", "Kanada"),
+    ("SU",       "Suncor Energy",      "Kanada"),
+    ("BCE",      "BCE Inc. (Bell)",    "Kanada"),
+    ("TU",       "Telus Corp.",        "Kanada"),
+    ("ENB",      "Enbridge Inc.",      "Kanada"),
+    ("ACDVF",    "Air Canada",         "Kanada"),
+    ("LTM",      "LATAM Airlines",     "Kanada"),
+    ("VALE",     "Vale SA",            "Kanada"),
 ]
 
 WATCHLIST = [
-    ("AAL",     "American Airlines", "US"),
-    ("DAL",     "Delta Air Lines",   "US"),
-    ("BAYN.DE", "Bayer AG",          "DAX"),
-    ("VNA.DE",  "Vonovia",           "DAX"),
-    ("KO",      "Coca-Cola",         "US"),
-    ("PFE",     "Pfizer",            "US"),
-    ("INTC",    "Intel",             "US"),
-    ("T",       "AT&T",              "US"),
-    ("LHA.DE",  "Lufthansa",         "DAX"),
-    ("DBK.DE",  "Deutsche Bank",     "DAX"),
+    ("JAPSY",    "Japan Airlines",     "Japan"),
+    ("ALNPY",    "ANA Holdings",       "Japan"),
+    ("SINGY",    "Singapore Airlines", "Asien"),
+    ("AAL",      "American Airlines",  "US"),
+    ("DAL",      "Delta Air Lines",    "US"),
+    ("BAYN.DE",  "Bayer AG",           "DAX"),
+    ("VNA.DE",   "Vonovia",            "DAX"),
+    ("LHA.DE",   "Lufthansa",          "DAX"),
+    ("KO",       "Coca-Cola",          "US"),
+    ("PFE",      "Pfizer",             "US"),
+    ("VOD",      "Vodafone",           "UK"),
+    ("DTE.DE",   "Dt. Telekom",        "DAX"),
+    ("T",        "AT&T",               "US"),
+    ("BCE",      "BCE Inc. (Bell)",    "Kanada"),
+    ("EOAN.DE",  "E.ON SE",            "DAX"),
 ]
 
+REGION_FLAG = {
+    "DAX": "🇩🇪", "UK": "🇬🇧", "US": "🇺🇸",
+    "EU": "🇪🇺", "Japan": "🇯🇵", "Asien": "🌏", "Kanada": "🇨🇦"
+}
+
+# ── ANALYSE ────────────────────────────────────────────────────────────────
 def analyze(ticker, name, market):
     try:
-        time.sleep(1.2)
+        time.sleep(1.0)
         df = yf.download(ticker, period="300d", interval="1d",
                          progress=False, auto_adjust=True)
         if df.empty or len(df) < 60:
@@ -91,7 +173,6 @@ def analyze(ticker, name, market):
         high   = df["High"].squeeze()
         low    = df["Low"].squeeze()
 
-        # Indikatoren
         bb     = ta.volatility.BollingerBands(close=close, window=20, window_dev=2.0)
         bb_lo  = bb.bollinger_lband()
         bb_hi  = bb.bollinger_hband()
@@ -99,13 +180,9 @@ def analyze(ticker, name, market):
         bb_pct = bb.bollinger_pband()
         rsi    = ta.momentum.RSIIndicator(close=close, window=14).rsi()
         ma200  = close.rolling(200).mean()
+        atr_i  = ta.volatility.AverageTrueRange(high=high, low=low, close=close, window=14)
+        atr_val = float(atr_i.average_true_range().iloc[-1])
 
-        # ATR berechnen (14 Tage)
-        atr_ind = ta.volatility.AverageTrueRange(high=high, low=low, close=close, window=14)
-        atr_val = float(atr_ind.average_true_range().iloc[-1])
-        atr_pct = round(atr_val / float(close.iloc[-1]) * 100, 1)
-
-        # Aktuelle Werte
         price     = float(close.iloc[-1])
         prev      = float(close.iloc[-2])
         chg       = round((price - prev) / prev * 100, 2)
@@ -116,98 +193,77 @@ def analyze(ticker, name, market):
         bb_p_now  = round(float(bb_pct.iloc[-1]) * 100, 1)
         ma200_now = float(ma200.iloc[-1])
 
-        # Kern-Signal
         prev_below = float(close.iloc[-2]) < float(bb_lo.iloc[-2])
         now_above  = price > bb_lo_now
         cond_bb    = prev_below and now_above
         cond_rsi   = rsi_now < 35
         cond_trend = price > ma200_now
         score      = sum([cond_bb, cond_rsi, cond_trend])
-        sell_signal = rsi_now > 65 and bb_p_now > 85
+        sell_sig   = rsi_now > 65 and bb_p_now > 85
 
-        # Stop-Loss Varianten
-        stop_fix   = round(price * 0.92, 2)                    # 8% fix
-        stop_atr   = round(price - (2 * atr_val), 2)           # 2x ATR
-        stop_fix_pct = 8.0
+        stop_fix = round(price * 0.92, 2)
+        stop_atr = round(price - (2 * atr_val), 2)
         stop_atr_pct = round((price - stop_atr) / price * 100, 1)
+        target1  = round(bb_mi_now, 2)
+        target2  = round(bb_hi_now, 2)
+        pot1     = round((target1 - price) / price * 100, 1)
+        pot2     = round((target2 - price) / price * 100, 1)
+        fut_entry = round(bb_lo_now * 0.99, 2)
+        fut_stop  = round(fut_entry * 0.92, 2)
 
-        # Ziele
-        target1    = round(bb_mi_now, 2)
-        target2    = round(bb_hi_now, 2)
-        potential1 = round((target1 - price) / price * 100, 1)
-        potential2 = round((target2 - price) / price * 100, 1)
-
-        # Zukünftiger Einstieg
-        future_entry = round(bb_lo_now * 0.99, 2)
-        future_stop_fix = round(future_entry * 0.92, 2)
-        future_stop_atr = round(future_entry - (2 * atr_val), 2)
-
-        # Was fehlt noch
-        entry_when = []
+        missing = []
         if not cond_bb:
-            entry_when.append(f"Preis fällt unter {round(bb_lo_now,2)} und erholt sich")
+            missing.append(f"BB-Umkehr (unter {round(bb_lo_now,2)} und Erholung)")
         if not cond_rsi:
-            entry_when.append(f"RSI fällt unter 35 (aktuell: {rsi_now})")
+            missing.append(f"RSI unter 35 (aktuell: {rsi_now})")
         if not cond_trend:
-            entry_when.append(f"Preis steigt über MA200 ({round(ma200_now,2)})")
+            missing.append(f"Preis über MA200 ({round(ma200_now,2)})")
 
-        # Signal
         if score == 3:
-            signal = "KAUFEN";  color = "#00d4aa"; label = "Jetzt kaufen"
+            signal = "KAUFEN"
         elif score == 2:
-            signal = "FAST";    color = "#f7b731"; label = "Morgen prüfen"
+            signal = "FAST"
+        elif sell_sig:
+            signal = "VERKAUFEN"
         elif score == 1 and cond_bb:
-            signal = "BEOBACHTEN"; color = "#4a9eff"; label = "Beobachten"
-        elif sell_signal:
-            signal = "VERKAUFEN"; color = "#ff4757"; label = "Jetzt verkaufen"
+            signal = "BEOBACHTEN"
         else:
-            signal = "NEUTRAL"; color = "#5a6478"; label = "Abwarten"
+            signal = "NEUTRAL"
 
         high52 = float(close.rolling(min(252,len(close))).max().iloc[-1])
         low52  = float(close.rolling(min(252,len(close))).min().iloc[-1])
         pos52  = round((price - low52) / (high52 - low52) * 100, 1) if high52 != low52 else 50
 
+        # Währung erkennen
+        currency = "€" if market in ("DAX","EU") and not ticker.endswith(".L") else "$"
+        price_fmt = f"{currency}{price:,.2f}" if currency == "$" else f"{price:,.2f} {currency}"
+
         return {
-            "ticker":         ticker,
-            "name":           name,
-            "market":         market,
-            "price":          round(price, 2),
-            "change":         chg,
-            "rsi":            rsi_now,
-            "bb_pct":         bb_p_now,
-            "bb_lower":       round(bb_lo_now, 2),
-            "bb_upper":       round(bb_hi_now, 2),
-            "bb_mid":         round(bb_mi_now, 2),
-            "ma200":          round(ma200_now, 2),
-            "pos52":          pos52,
-            "atr":            round(atr_val, 2),
-            "atr_pct":        atr_pct,
-            "signal":         signal,
-            "color":          color,
-            "label":          label,
-            "score":          score,
-            "stop_fix":       stop_fix,
-            "stop_atr":       stop_atr,
-            "stop_fix_pct":   stop_fix_pct,
-            "stop_atr_pct":   stop_atr_pct,
-            "target1":        target1,
-            "target2":        target2,
-            "potential1":     potential1,
-            "potential2":     potential2,
-            "future_entry":   future_entry,
-            "future_stop_fix":future_stop_fix,
-            "future_stop_atr":future_stop_atr,
-            "entry_when":     entry_when,
-            "cond_bb":        cond_bb,
-            "cond_rsi":       cond_rsi,
-            "cond_trend":     cond_trend,
+            "ticker": ticker, "name": name, "market": market,
+            "price": round(price, 2), "price_fmt": price_fmt,
+            "change": chg, "rsi": rsi_now,
+            "bb_lo": round(bb_lo_now,2), "bb_hi": round(bb_hi_now,2),
+            "bb_mid": round(bb_mi_now,2), "bb_pct": bb_p_now,
+            "ma200": round(ma200_now,2), "pos52": pos52,
+            "atr": round(atr_val,2), "atr_pct": round(atr_val/price*100,1),
+            "signal": signal, "score": score,
+            "stop_fix": stop_fix, "stop_atr": stop_atr,
+            "stop_atr_pct": stop_atr_pct,
+            "target1": target1, "target2": target2,
+            "pot1": pot1, "pot2": pot2,
+            "fut_entry": fut_entry, "fut_stop": fut_stop,
+            "missing": missing,
+            "cond_bb": cond_bb, "cond_rsi": cond_rsi, "cond_trend": cond_trend,
+            "currency": currency,
         }
     except Exception as e:
         print(f"  Fehler {ticker}: {e}")
         return None
 
-CACHE = {"data": [], "time": None}
-ORDER = {"KAUFEN":0,"FAST":1,"BEOBACHTEN":2,"VERKAUFEN":3,"NEUTRAL":4}
+
+CACHE = {"data": [], "time": None, "scanning": False}
+ORDER = {"KAUFEN":0, "FAST":1, "BEOBACHTEN":2, "VERKAUFEN":3, "NEUTRAL":4}
+
 
 def do_scan(pairs):
     results = []
@@ -217,279 +273,551 @@ def do_scan(pairs):
         if r:
             results.append(r)
     results.sort(key=lambda x: (ORDER.get(x["signal"],9), -x["score"]))
-    CACHE["data"] = results
-    CACHE["time"] = datetime.datetime.now()
-    return results
+    CACHE["data"]     = results
+    CACHE["time"]     = datetime.datetime.now()
+    CACHE["scanning"] = False
+    print("Scan abgeschlossen.", flush=True)
 
+
+# ── TEMPLATE ───────────────────────────────────────────────────────────────
 TEMPLATE = """<!DOCTYPE html>
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>TradeScan</title>
+{% if scanning %}<meta http-equiv="refresh" content="30">{% endif %}
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-body{background:#0a0c0f;color:#e8eaf0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;max-width:500px;margin:0 auto;padding-bottom:60px}
-.header{background:#111318;border-bottom:1px solid #1e2530;padding:12px 16px;position:sticky;top:0;z-index:100}
-.logo{font-size:20px;font-weight:900;letter-spacing:-0.5px;margin-bottom:4px}
-.logo span{color:#00d4aa}
-.scan-time{font-size:10px;color:#5a6478;margin-bottom:8px}
-.btn-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.btn{border:none;border-radius:8px;padding:9px;font-size:12px;font-weight:700;cursor:pointer;width:100%}
-.btn-primary{background:#00d4aa;color:#000}
-.btn-secondary{background:#1e2530;color:#e8eaf0}
-.stats{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid #1e2530}
-.stat{background:#111318;padding:9px 4px;text-align:center;border-right:1px solid #1e2530}
-.stat:last-child{border-right:none}
-.stat-val{font-size:20px;font-weight:700}
-.stat-label{font-size:9px;color:#5a6478;text-transform:uppercase;margin-top:1px}
-.filter-row{display:flex;gap:6px;padding:8px 12px;background:#111318;border-bottom:1px solid #1e2530;overflow-x:auto;-webkit-overflow-scrolling:touch}
-.fb{border:1px solid #1e2530;border-radius:16px;padding:4px 12px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;background:transparent;color:#5a6478}
-.fb.active{background:#00d4aa;color:#000;border-color:#00d4aa}
-.sec{font-size:10px;color:#5a6478;text-transform:uppercase;letter-spacing:1px;padding:10px 14px 4px;font-weight:700}
-.card{background:#111318;border-bottom:1px solid #1e2530;padding:14px}
-.card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
-.ticker{font-size:16px;font-weight:700}
-.tsub{font-size:11px;color:#5a6478;margin-top:1px}
-.badge{padding:5px 12px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap}
-.pr-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
-.price{font-size:20px;font-weight:700}
-.up{color:#00d4aa}.dn{color:#ff4757}.am{color:#f7b731}.bl{color:#4a9eff}
-.checks{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-bottom:10px}
-.ck{border-radius:7px;padding:7px 4px;text-align:center}
-.ck-icon{font-size:15px;margin-bottom:2px}
-.ck-label{font-size:9px;line-height:1.2}
-.box{border-radius:8px;padding:10px;margin-bottom:8px}
-.row{display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-bottom:1px solid rgba(255,255,255,0.05)}
-.row:last-child{border-bottom:none}
-.rl{color:#5a6478}
-.hint{font-size:11px;border-radius:7px;padding:8px 10px;margin-bottom:8px;line-height:1.5}
-.stop-box{background:#0a0c0f;border:1px solid #1e2530;border-radius:8px;padding:10px;margin-bottom:8px}
-.stop-title{font-size:10px;color:#5a6478;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;font-weight:700}
-.stop-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.stop-card{background:#111318;border-radius:7px;padding:8px}
-.stop-label{font-size:10px;color:#5a6478;margin-bottom:4px}
-.stop-val{font-size:14px;font-weight:700;color:#ff4757}
-.stop-pct{font-size:11px;color:#5a6478;margin-top:2px}
-.stop-rec{font-size:10px;margin-top:4px;padding:3px 6px;border-radius:4px;display:inline-block}
-.future-box{background:#0a0c0f;border:1px solid #1e2530;border-radius:8px;padding:10px;margin-bottom:8px}
-.future-title{font-size:10px;color:#5a6478;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
-.future-row{display:flex;justify-content:space-between;padding:4px 0;font-size:12px;border-bottom:1px solid rgba(255,255,255,0.04)}
-.future-row:last-child{border-bottom:none}
-.when-item{font-size:11px;color:#5a6478;padding:3px 0;display:flex;gap:6px}
-.empty{text-align:center;padding:60px 20px;color:#5a6478}
-.footer{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:500px;background:#111318;border-top:1px solid #1e2530;padding:8px 16px;font-size:10px;color:#5a6478;text-align:center}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f2f2f7;color:#1a1a1a;max-width:480px;margin:0 auto;min-height:100vh}
+
+/* HEADER */
+.hd{background:#fff;padding:14px 16px 12px;border-bottom:1px solid #f0f0f0;position:sticky;top:0;z-index:100}
+.hd-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.logo-t{font-size:20px;font-weight:700;color:#1a1a1a;letter-spacing:-0.5px}
+.logo-s{font-size:20px;font-weight:700;color:#1a73e8;letter-spacing:-0.5px}
+.hd-date{font-size:11px;color:#bbb}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.b1{background:#1a73e8;color:#fff;border:none;border-radius:10px;padding:12px;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:0.2px}
+.b2{background:#fff;color:#1a1a1a;border:1.5px solid #e0e0e0;border-radius:10px;padding:12px;font-size:12px;font-weight:600;cursor:pointer}
+.b1:active,.b2:active{opacity:0.8}
+
+/* SCAN BANNER */
+.scan-banner{background:#FFF8E8;border-bottom:1px solid #FFE082;padding:10px 16px;font-size:12px;font-weight:600;color:#F9A825;text-align:center}
+
+/* SEARCH */
+.srch{padding:10px 16px;background:#fff;border-bottom:1px solid #f0f0f0}
+.srch-box{display:flex;align-items:center;gap:8px;background:#f5f5f5;border-radius:10px;padding:8px 12px}
+.srch-box input{border:none;background:transparent;font-size:14px;color:#1a1a1a;outline:none;width:100%;font-family:inherit}
+.srch-box input::placeholder{color:#bbb}
+.sr-drop{background:#fff;border:0.5px solid #e0e0e0;border-radius:12px;margin-top:6px;overflow:hidden;display:none;box-shadow:0 4px 16px rgba(0,0,0,0.08)}
+.sri{padding:12px 14px;border-bottom:1px solid #f5f5f5;cursor:pointer;display:flex;justify-content:space-between;align-items:center}
+.sri:last-child{border-bottom:none}
+.sri:active{background:#f9f9f9}
+.sri-t{font-size:13px;font-weight:700;color:#1a1a1a}
+.sri-n{font-size:11px;color:#aaa;margin-top:1px}
+
+/* STATS */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);background:#fff;border-bottom:1px solid #f0f0f0}
+.st{padding:12px 4px;text-align:center;cursor:pointer;border-right:1px solid #f5f5f5}
+.st:last-child{border-right:none}
+.st:active{background:#f9f9f9}
+.st-v{font-size:20px;font-weight:700}
+.st-l{font-size:9px;color:#aaa;text-transform:uppercase;letter-spacing:0.4px;margin-top:2px}
+
+/* REGION CHIPS */
+.chips-wrap{padding:8px 12px;background:#fff;border-bottom:1px solid #f0f0f0;overflow-x:auto;display:flex;gap:6px;-webkit-overflow-scrolling:touch}
+.chips-wrap::-webkit-scrollbar{display:none}
+.chip{border:1.5px solid #e8e8e8;border-radius:20px;padding:5px 12px;font-size:11px;font-weight:600;color:#888;white-space:nowrap;background:#fff;cursor:pointer;flex-shrink:0;transition:all 0.15s}
+.chip.on{color:#fff!important;border-color:transparent!important;background:#1a73e8!important}
+
+/* SECTION HEADER */
+.sh{display:flex;justify-content:space-between;align-items:center;padding:8px 16px;background:#f8f8f8;border-bottom:1px solid #f0f0f0}
+.sh-t{font-size:10px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.6px}
+.sh-a{font-size:12px;font-weight:600;color:#1a73e8;cursor:pointer}
+
+/* LIST ROW */
+.row{display:flex;justify-content:space-between;align-items:center;padding:13px 16px;border-bottom:1px solid #f5f5f5;background:#fff;cursor:pointer;text-decoration:none;color:inherit}
+.row:active{background:#f9f9f9}
+.row-l{display:flex;align-items:center;gap:10px}
+.dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.tk{font-size:14px;font-weight:700;color:#1a1a1a}
+.nm{font-size:11px;color:#aaa;margin-top:1px}
+.row-r{display:flex;align-items:center;gap:8px}
+.pr{font-size:13px;font-weight:600;color:#1a1a1a;text-align:right}
+.ch{font-size:11px;text-align:right;margin-top:1px}
+.bdg{padding:3px 8px;border-radius:6px;font-size:10px;font-weight:700;white-space:nowrap}
+.arr{color:#ddd;font-size:14px;margin-left:2px}
+
+/* VIEW ALL BTN */
+.va-btn{margin:12px 16px 16px;border:1.5px solid #1a73e8;border-radius:12px;padding:12px;text-align:center;font-size:13px;font-weight:700;color:#1a73e8;cursor:pointer;background:#fff}
+.va-btn:active{background:#f0f4ff}
+
+/* BACK NAV */
+.nav{display:flex;align-items:center;gap:12px;padding:12px 16px;background:#fff;border-bottom:1px solid #f0f0f0;position:sticky;top:0;z-index:100}
+.nav-back{background:#f5f5f5;border:none;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;color:#1a1a1a}
+.nav-title{font-size:15px;font-weight:700;color:#1a1a1a}
+.nav-sub{font-size:11px;color:#aaa;margin-top:1px}
+
+/* ALL SECTION HEADER */
+.ash{display:flex;justify-content:space-between;align-items:center;padding:8px 16px;background:#f8f8f8;border-bottom:1px solid #f0f0f0}
+.ash-t{font-size:10px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.6px}
+.ash-c{font-size:12px;font-weight:700;color:#1a73e8}
+
+/* DETAIL */
+.det-hero{padding:18px 16px;background:#fff;border-bottom:1px solid #f0f0f0}
+.det-p{font-size:30px;font-weight:700;color:#1a1a1a}
+.det-chg{font-size:14px;margin-top:3px}
+.det-badge{display:inline-block;padding:6px 14px;border-radius:8px;font-size:12px;font-weight:700;margin-top:10px}
+.cks{display:flex;gap:6px;margin-top:12px}
+.ck{border-radius:8px;padding:8px 10px;text-align:center;flex:1}
+.ck-i{font-size:15px}
+.ck-l{font-size:9px;margin-top:3px}
+.det-sec{padding:14px 16px;background:#fff;border-bottom:1px solid #f0f0f0}
+.dst{font-size:10px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px}
+.dr{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f8f8f8;font-size:13px}
+.dr:last-child{border-bottom:none}
+.dl{color:#888}.dv{font-weight:600;color:#1a1a1a}
+.dg{font-weight:600;color:#00A65A}.dr2{font-weight:600;color:#E8333C}
+.fb{background:#EEF3FF;border-radius:10px;padding:12px;margin-top:6px}
+.fr{display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-bottom:1px solid rgba(44,94,232,0.08)}
+.fr:last-child{border-bottom:none}
+.fl{color:#4A6FE3}.fv{font-weight:600;color:#1a1a1a}
+.hint{font-size:12px;color:#4A6FE3;margin-top:8px;line-height:1.5}
+.sell-box{background:#FFF0F0;border-radius:10px;padding:12px;margin-top:6px}
+.sb-row{display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-bottom:1px solid rgba(232,51,60,0.08)}
+.sb-row:last-child{border-bottom:none}
+.sl{color:#E8333C}.sv{font-weight:600;color:#1a1a1a}
+
+/* EMPTY STATE */
+.empty{text-align:center;padding:48px 24px;color:#aaa}
+.empty-i{font-size:48px;margin-bottom:12px}
+.empty-t{font-size:16px;font-weight:600;color:#888;margin-bottom:6px}
+.empty-s{font-size:13px;line-height:1.6}
 </style>
 </head>
 <body>
 
-<div class="header">
-  <div class="logo">TRADE<span>SCAN</span></div>
-  <div class="scan-time">{{ scan_time }}</div>
-  <div class="btn-row">
-    <form method="post" action="/scan" style="margin:0">
-      <button class="btn btn-primary" type="submit">▶ Vollscan ({{ total_tickers }})</button>
-    </form>
-    <form method="post" action="/scan-wl" style="margin:0">
-      <button class="btn btn-secondary" type="submit">◎ Watchlist (10)</button>
-    </form>
-  </div>
-</div>
-
-<div class="stats">
-  <div class="stat"><div class="stat-val up">{{ kaufen }}</div><div class="stat-label">Kaufen</div></div>
-  <div class="stat"><div class="stat-val am">{{ fast }}</div><div class="stat-label">Fast</div></div>
-  <div class="stat"><div class="stat-val dn">{{ verkaufen }}</div><div class="stat-label">Verkauf</div></div>
-  <div class="stat"><div class="stat-val">{{ total }}</div><div class="stat-label">Gesamt</div></div>
-</div>
-
-<div class="filter-row">
-  <button class="fb {% if f=='all' %}active{% endif %}" onclick="location.href='/?f=all'">Alle</button>
-  <button class="fb {% if f=='kaufen' %}active{% endif %}" onclick="location.href='/?f=kaufen'">Kaufen</button>
-  <button class="fb {% if f=='fast' %}active{% endif %}" onclick="location.href='/?f=fast'">Fast</button>
-  <button class="fb {% if f=='beobachten' %}active{% endif %}" onclick="location.href='/?f=beobachten'">Watch</button>
-  <button class="fb {% if f=='dax' %}active{% endif %}" onclick="location.href='/?f=dax'">DAX</button>
-  <button class="fb {% if f=='us' %}active{% endif %}" onclick="location.href='/?f=us'">US</button>
-</div>
-
-{% if not data %}
-<div class="empty">
-  <div style="font-size:40px;margin-bottom:12px">📊</div>
-  <div style="font-size:15px;margin-bottom:6px">Noch keine Daten</div>
-  <div style="font-size:12px">Tippe auf Vollscan oder Watchlist</div>
-</div>
-{% else %}
-
-{% for sec_name, sec_list in groups %}
-{% if sec_list %}
-<div class="sec">{{ sec_name }}</div>
-{% for r in sec_list %}
-<div class="card">
-
-  <div class="card-top">
-    <div>
-      <div class="ticker">{{ r.ticker.replace('.DE','').replace('.PA','').replace('.AS','') }}</div>
-      <div class="tsub">{{ r.name }} · {{ r.market }}</div>
+<!-- ══════════ HOME VIEW ══════════ -->
+<div id="vHome">
+  <div class="hd">
+    <div class="hd-top">
+      <div><span class="logo-t">TRADE</span><span class="logo-s">SCAN</span></div>
+      <div class="hd-date">{{ scan_time }}</div>
     </div>
-    <span class="badge" style="background:{{ r.color }}22;color:{{ r.color }};border:1px solid {{ r.color }}44">
-      {{ r.label }}
-    </span>
-  </div>
-
-  <div class="pr-row">
-    <span class="price">{{ "%.2f"|format(r.price) }}</span>
-    <span class="{{ 'up' if r.change >= 0 else 'dn' }}">{{ "%+.2f"|format(r.change) }}%</span>
-  </div>
-
-  <div class="checks">
-    <div class="ck" style="background:{{ '#00d4aa22' if r.cond_bb else '#1e2530' }}">
-      <div class="ck-icon" style="color:{{ '#00d4aa' if r.cond_bb else '#5a6478' }}">{{ '✓' if r.cond_bb else '✗' }}</div>
-      <div class="ck-label" style="color:{{ '#00d4aa' if r.cond_bb else '#5a6478' }}">BB-Umkehr</div>
-    </div>
-    <div class="ck" style="background:{{ '#00d4aa22' if r.cond_rsi else '#1e2530' }}">
-      <div class="ck-icon" style="color:{{ '#00d4aa' if r.cond_rsi else '#5a6478' }}">{{ '✓' if r.cond_rsi else '✗' }}</div>
-      <div class="ck-label" style="color:{{ '#00d4aa' if r.cond_rsi else '#5a6478' }}">RSI {{ r.rsi }}</div>
-    </div>
-    <div class="ck" style="background:{{ '#00d4aa22' if r.cond_trend else '#1e2530' }}">
-      <div class="ck-icon" style="color:{{ '#00d4aa' if r.cond_trend else '#5a6478' }}">{{ '✓' if r.cond_trend else '✗' }}</div>
-      <div class="ck-label" style="color:{{ '#00d4aa' if r.cond_trend else '#5a6478' }}">Trend {{ '↑' if r.cond_trend else '↓' }}</div>
+    <div class="btns">
+      <form method="post" action="/scan" style="margin:0;flex:1">
+        <button class="b1" type="submit" style="width:100%">▶ Vollscan ({{ total_tickers }})</button>
+      </form>
+      <form method="post" action="/scan-wl" style="margin:0;flex:1">
+        <button class="b2" type="submit" style="width:100%">◎ Watchlist ({{ wl_count }})</button>
+      </form>
     </div>
   </div>
 
-  {% if r.signal == 'KAUFEN' %}
-  <div class="hint" style="background:#00d4aa11;border:1px solid #00d4aa33;color:#00d4aa">
-    Alle 3 Bedingungen erfüllt — heute kaufen!
-  </div>
-  <div class="box" style="background:#00d4aa0a;border:1px solid #00d4aa22">
-    <div class="row"><span class="rl">Kaufen bei</span><span style="font-weight:700">{{ "%.2f"|format(r.price) }}</span></div>
-    <div class="row"><span class="rl">Ziel 1 — MA20</span><span class="up">{{ "%.2f"|format(r.target1) }} ({{ "%+.1f"|format(r.potential1) }}%)</span></div>
-    <div class="row"><span class="rl">Ziel 2 — ob. BB</span><span class="up">{{ "%.2f"|format(r.target2) }} ({{ "%+.1f"|format(r.potential2) }}%)</span></div>
-    <div class="row"><span class="rl">Haltedauer</span><span>2–6 Wochen</span></div>
-    <div class="row"><span class="rl">ATR (Tagesschw.)</span><span class="bl">{{ "%.2f"|format(r.atr) }} ({{ r.atr_pct }}%)</span></div>
+  {% if scanning %}
+  <div class="scan-banner">⏳ Scan läuft... Seite aktualisiert sich automatisch</div>
+  {% endif %}
+
+  <div class="srch">
+    <div class="srch-box">
+      <span style="color:#ccc;font-size:14px">⌕</span>
+      <input type="text" id="si" placeholder="Aktie suchen... z.B. BAYN, Japan, Vodafone" oninput="doSearch(this.value)" autocomplete="off">
+    </div>
+    <div class="sr-drop" id="sr"></div>
   </div>
 
-  <div class="stop-box">
-    <div class="stop-title">Stop-Loss Vergleich — wähle einen</div>
-    <div class="stop-grid">
-      <div class="stop-card">
-        <div class="stop-label">Fixer Stop (8%)</div>
-        <div class="stop-val">{{ "%.2f"|format(r.stop_fix) }}</div>
-        <div class="stop-pct">−{{ r.stop_fix_pct }}% vom Einstieg</div>
-        <div class="stop-rec" style="background:#5a647822;color:#5a6478">Einfach & sicher</div>
-      </div>
-      <div class="stop-card">
-        <div class="stop-label">ATR Stop (2× ATR)</div>
-        <div class="stop-val">{{ "%.2f"|format(r.stop_atr) }}</div>
-        <div class="stop-pct">−{{ r.stop_atr_pct }}% vom Einstieg</div>
-        <div class="stop-rec" style="background:#4a9eff22;color:#4a9eff">Profi-Methode</div>
-      </div>
+  <div class="stats">
+    <div class="st" onclick="openAll('KAUFEN')">
+      <div class="st-v" style="color:#00A65A">{{ kaufen }}</div>
+      <div class="st-l">Kaufen</div>
     </div>
-    <div style="font-size:11px;color:#5a6478;margin-top:8px;line-height:1.5">
-      {% if r.stop_atr_pct < 6 %}
-      ATR Stop ist enger → Aktie ist ruhig. Für Anfänger: nimm den ATR Stop.
-      {% elif r.stop_atr_pct > 10 %}
-      ATR Stop ist weiter → Aktie ist volatil. Für Anfänger: nimm den fixen 8% Stop.
-      {% else %}
-      Beide Stops sind ähnlich. Nimm den ATR Stop — er passt sich der Aktie an.
-      {% endif %}
+    <div class="st" onclick="openAll('FAST')">
+      <div class="st-v" style="color:#FF6200">{{ fast }}</div>
+      <div class="st-l">Fast</div>
+    </div>
+    <div class="st" onclick="openAll('VERKAUFEN')">
+      <div class="st-v" style="color:#E8333C">{{ verkaufen }}</div>
+      <div class="st-l">Verkaufen</div>
+    </div>
+    <div class="st" onclick="openAll('ALLE')">
+      <div class="st-v" style="color:#1a73e8">{{ total }}</div>
+      <div class="st-l">Alle →</div>
     </div>
   </div>
 
-  {% elif r.signal == 'VERKAUFEN' %}
-  <div class="hint" style="background:#ff475711;border:1px solid #ff475733;color:#ff4757">
-    RSI überkauft + obere BB erreicht — Position jetzt schliessen und Gewinn sichern!
+  <div class="chips-wrap" id="regionChips">
+    <div class="chip on" onclick="filterRegion('alle',this)">Alle</div>
+    <div class="chip" onclick="filterRegion('DAX',this)">🇩🇪 DAX</div>
+    <div class="chip" onclick="filterRegion('UK',this)">🇬🇧 UK</div>
+    <div class="chip" onclick="filterRegion('US',this)">🇺🇸 US</div>
+    <div class="chip" onclick="filterRegion('EU',this)">🇪🇺 EU</div>
+    <div class="chip" onclick="filterRegion('Japan',this)">🇯🇵 Japan</div>
+    <div class="chip" onclick="filterRegion('Asien',this)">🌏 Asien</div>
+    <div class="chip" onclick="filterRegion('Kanada',this)">🇨🇦 Kanada</div>
   </div>
 
+  {% if not data %}
+  <div class="empty">
+    <div class="empty-i">📊</div>
+    <div class="empty-t">Noch keine Daten</div>
+    <div class="empty-s">Tippe auf Vollscan oder Watchlist<br>um die Analyse zu starten.</div>
+  </div>
   {% else %}
-  {% if r.entry_when %}
-  <div class="hint" style="background:#f7b73111;border:1px solid #f7b73133;color:#f7b731">
-    {{ r.score }}/3 Bedingungen erfüllt — noch nicht kaufen.
-  </div>
-  {% endif %}
-
-  <div class="future-box">
-    <div class="future-title">Wo wäre der Einstieg wenn Signal kommt?</div>
-    <div class="future-row"><span class="rl">Möglicher Einstieg</span><span class="bl">ca. {{ "%.2f"|format(r.future_entry) }}</span></div>
-    <div class="future-row"><span class="rl">Ziel 1 — MA20</span><span class="up">{{ "%.2f"|format(r.target1) }} ({{ "%+.1f"|format((r.target1 - r.future_entry) / r.future_entry * 100) }}%)</span></div>
-    <div class="future-row"><span class="rl">Ziel 2 — ob. BB</span><span class="up">{{ "%.2f"|format(r.target2) }} ({{ "%+.1f"|format((r.target2 - r.future_entry) / r.future_entry * 100) }}%)</span></div>
-    <div class="future-row"><span class="rl">ATR (Tagesschw.)</span><span class="bl">{{ "%.2f"|format(r.atr) }} ({{ r.atr_pct }}%)</span></div>
-    <div style="margin-top:8px">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
-        <div style="background:#111318;border-radius:6px;padding:7px">
-          <div style="font-size:10px;color:#5a6478;margin-bottom:3px">Stop fix (8%)</div>
-          <div style="font-size:13px;font-weight:700;color:#ff4757">{{ "%.2f"|format(r.future_stop_fix) }}</div>
-        </div>
-        <div style="background:#111318;border-radius:6px;padding:7px">
-          <div style="font-size:10px;color:#5a6478;margin-bottom:3px">Stop ATR (2×)</div>
-          <div style="font-size:13px;font-weight:700;color:#ff4757">{{ "%.2f"|format(r.future_stop_atr) }}</div>
+  <div id="homeList">
+    {% for sig, sig_label, sig_dot in [
+        ('KAUFEN','✓ Jetzt kaufen','#00A65A'),
+        ('FAST','~ Morgen prüfen','#FF6200'),
+        ('VERKAUFEN','↓ Jetzt verkaufen','#E8333C')
+    ] %}
+    {% set group = data | selectattr('signal','equalto',sig) | list %}
+    {% if group %}
+    {% set top3 = group[:3] %}
+    {% set total_g = group | length %}
+    <div class="sh" id="sh-{{ sig }}">
+      <span class="sh-t">{{ sig_label }}</span>
+      <span class="sh-a" onclick="openAll('{{ sig }}')">Alle {{ total_g }} →</span>
+    </div>
+    {% for r in top3 %}
+    <div class="row" onclick="openDetail('{{ r.ticker }}')">
+      <div class="row-l">
+        <div class="dot" style="background:{{ sig_dot }}"></div>
+        <div>
+          <div class="tk">{{ r.ticker }}</div>
+          <div class="nm">{{ r.name }} · {{ {'DAX':'🇩🇪','UK':'🇬🇧','US':'🇺🇸','EU':'🇪🇺','Japan':'🇯🇵','Asien':'🌏','Kanada':'🇨🇦'}.get(r.market,'') }} {{ r.market }}</div>
         </div>
       </div>
+      <div class="row-r">
+        <div>
+          <div class="pr">{{ r.price_fmt }}</div>
+          <div class="ch" style="color:{{'#00A65A' if r.change>=0 else '#E8333C'}}">{{ '+' if r.change>=0 else '' }}{{ r.change }}%</div>
+        </div>
+        {% if sig == 'KAUFEN' %}<span class="bdg" style="background:#E8F8F1;color:#00763D">Kaufen</span>
+        {% elif sig == 'FAST' %}<span class="bdg" style="background:#FFF3E8;color:#CC4E00">Fast</span>
+        {% else %}<span class="bdg" style="background:#FFF0F0;color:#E8333C">Verkaufen</span>{% endif %}
+        <span class="arr">›</span>
+      </div>
     </div>
-    <div style="border-top:1px solid #1e2530;padding-top:8px">
-      <div class="future-title" style="margin-bottom:4px">Was muss noch passieren?</div>
-      {% for w in r.entry_when %}
-      <div class="when-item"><span class="bl">→</span><span>{{ w }}</span></div>
-      {% endfor %}
-    </div>
+    {% endfor %}
+    {% endif %}
+    {% endfor %}
   </div>
   {% endif %}
 
+  {% if data %}
+  <div class="va-btn" onclick="openAll('ALLE')">Alle {{ total }} Aktien anzeigen →</div>
+  {% endif %}
 </div>
-{% endfor %}
-{% endif %}
-{% endfor %}
-{% endif %}
 
-<div class="footer">TradeScan · Range-Reversion · 2–6 Wochen · Kein Anlageberatung</div>
+<!-- ══════════ ALL VIEW ══════════ -->
+<div id="vAll" style="display:none">
+  <div class="nav">
+    <button class="nav-back" onclick="show('vHome')">‹ Zurück</button>
+    <div>
+      <div class="nav-title" id="allTitle">Alle Aktien</div>
+      <div class="nav-sub" id="allSub"></div>
+    </div>
+  </div>
+  <div id="allList"></div>
+</div>
+
+<!-- ══════════ DETAIL VIEW ══════════ -->
+<div id="vDetail" style="display:none">
+  <div class="nav">
+    <button class="nav-back" id="detBack" onclick="show('vHome')">‹ Zurück</button>
+    <div>
+      <div class="nav-title" id="dTicker"></div>
+      <div class="nav-sub" id="dName"></div>
+    </div>
+  </div>
+  <div id="dContent"></div>
+</div>
+
+<script>
+// ── DATA aus Flask ──────────────────────────────────────────────────────────
+const ALL_DATA = {{ data_json }};
+const FLAGS = {DAX:'🇩🇪',UK:'🇬🇧',US:'🇺🇸',EU:'🇪🇺',Japan:'🇯🇵',Asien:'🌏',Kanada:'🇨🇦'};
+const SIG_CFG = {
+  KAUFEN:    {dot:'#00A65A', bg:'#E8F8F1', col:'#00763D', lbl:'Kaufen'},
+  FAST:      {dot:'#FF6200', bg:'#FFF3E8', col:'#CC4E00', lbl:'Fast'},
+  BEOBACHTEN:{dot:'#4a90d9', bg:'#EEF5FF', col:'#1a5fb4', lbl:'Watch'},
+  VERKAUFEN: {dot:'#E8333C', bg:'#FFF0F0', col:'#E8333C', lbl:'Verkaufen'},
+  NEUTRAL:   {dot:'#ccc',    bg:'#F5F5F5', col:'#888',    lbl:'Abwarten'}
+};
+const SEC_NAMES = {
+  KAUFEN:'✓ Jetzt kaufen', FAST:'~ Morgen prüfen',
+  BEOBACHTEN:'◎ Beobachten', VERKAUFEN:'↓ Jetzt verkaufen', NEUTRAL:'◎ Abwarten'
+};
+let activeRegion = 'alle';
+
+// ── VIEWS ───────────────────────────────────────────────────────────────────
+function show(id) {
+  ['vHome','vAll','vDetail'].forEach(v => {
+    document.getElementById(v).style.display = v===id ? 'block' : 'none';
+  });
+  window.scrollTo(0,0);
+}
+
+// ── ALL VIEW ─────────────────────────────────────────────────────────────────
+function openAll(filter) {
+  show('vAll');
+  const titles = {ALLE:'Alle Aktien',KAUFEN:'Kaufsignale',FAST:'Morgen prüfen',VERKAUFEN:'Verkaufssignale'};
+  document.getElementById('allTitle').textContent = titles[filter] || filter;
+  let data = filter==='ALLE' ? ALL_DATA : ALL_DATA.filter(s=>s.signal===filter);
+  document.getElementById('allSub').textContent = data.length + ' Werte';
+
+  const groups = {KAUFEN:[],FAST:[],BEOBACHTEN:[],VERKAUFEN:[],NEUTRAL:[]};
+  data.forEach(s=>(groups[s.signal]||groups.NEUTRAL).push(s));
+
+  let html = '';
+  for(const key of ['KAUFEN','FAST','BEOBACHTEN','VERKAUFEN','NEUTRAL']) {
+    if(!groups[key].length) continue;
+    html += `<div class="ash"><span class="ash-t">${SEC_NAMES[key]}</span><span class="ash-c">${groups[key].length}</span></div>`;
+    groups[key].forEach(s => { html += rowHTML(s); });
+  }
+  if(!html) html='<div class="empty"><div class="empty-i">🔍</div><div class="empty-t">Keine Daten</div><div class="empty-s">Bitte zuerst einen Scan starten.</div></div>';
+  document.getElementById('allList').innerHTML = html;
+}
+
+function rowHTML(s) {
+  const c = SIG_CFG[s.signal] || SIG_CFG.NEUTRAL;
+  const chgCol = s.change >= 0 ? '#00A65A' : '#E8333C';
+  const chgStr = (s.change >= 0 ? '+' : '') + s.change + '%';
+  return `<div class="row" onclick="openDetail('${s.ticker}')">
+    <div class="row-l">
+      <div class="dot" style="background:${c.dot}"></div>
+      <div><div class="tk">${s.ticker}</div><div class="nm">${s.name} · ${FLAGS[s.market]||''} ${s.market}</div></div>
+    </div>
+    <div class="row-r">
+      <div><div class="pr">${s.price_fmt}</div><div class="ch" style="color:${chgCol}">${chgStr}</div></div>
+      <span class="bdg" style="background:${c.bg};color:${c.col}">${c.lbl}</span>
+      <span class="arr">›</span>
+    </div>
+  </div>`;
+}
+
+// ── REGION FILTER ─────────────────────────────────────────────────────────────
+function filterRegion(region, el) {
+  activeRegion = region;
+  document.querySelectorAll('#regionChips .chip').forEach(c=>c.classList.remove('on'));
+  el.classList.add('on');
+  rebuildHome();
+}
+
+function rebuildHome() {
+  const list = document.getElementById('homeList');
+  if(!list) return;
+  let data = activeRegion==='alle' ? ALL_DATA : ALL_DATA.filter(s=>s.market===activeRegion);
+
+  let html = '';
+  const sigs = [
+    ['KAUFEN','✓ Jetzt kaufen','#00A65A'],
+    ['FAST','~ Morgen prüfen','#FF6200'],
+    ['VERKAUFEN','↓ Jetzt verkaufen','#E8333C']
+  ];
+  for(const [sig, lbl, dot] of sigs) {
+    const group = data.filter(s=>s.signal===sig);
+    if(!group.length) continue;
+    const top3 = group.slice(0,3);
+    const c = SIG_CFG[sig];
+    html += `<div class="sh"><span class="sh-t">${lbl}</span><span class="sh-a" onclick="openAll('${sig}')">Alle ${group.length} →</span></div>`;
+    top3.forEach(s=>{
+      const chgCol = s.change>=0?'#00A65A':'#E8333C';
+      html += `<div class="row" onclick="openDetail('${s.ticker}')">
+        <div class="row-l"><div class="dot" style="background:${dot}"></div>
+          <div><div class="tk">${s.ticker}</div><div class="nm">${s.name} · ${FLAGS[s.market]||''} ${s.market}</div></div>
+        </div>
+        <div class="row-r">
+          <div><div class="pr">${s.price_fmt}</div><div class="ch" style="color:${chgCol}">${(s.change>=0?'+':'')+s.change}%</div></div>
+          <span class="bdg" style="background:${c.bg};color:${c.col}">${c.lbl}</span>
+          <span class="arr">›</span>
+        </div>
+      </div>`;
+    });
+  }
+  if(!html) html='<div class="empty"><div class="empty-i">🔍</div><div class="empty-t">Keine Signale</div><div class="empty-s">Für diese Region wurden keine Signale gefunden.</div></div>';
+  list.innerHTML = html;
+}
+
+// ── DETAIL VIEW ───────────────────────────────────────────────────────────────
+let _prevView = 'vHome';
+function openDetail(ticker) {
+  const s = ALL_DATA.find(x=>x.ticker===ticker);
+  if(!s) return;
+
+  // remember where we came from
+  if(document.getElementById('vAll').style.display !== 'none') _prevView = 'vAll';
+  else _prevView = 'vHome';
+  document.getElementById('detBack').onclick = ()=>show(_prevView);
+
+  show('vDetail');
+  document.getElementById('dTicker').textContent = s.ticker;
+  document.getElementById('dName').textContent = s.name + ' · ' + (FLAGS[s.market]||'') + ' ' + s.market;
+
+  const c = SIG_CFG[s.signal] || SIG_CFG.NEUTRAL;
+  const chgCol = s.change>=0?'#00A65A':'#E8333C';
+  const chgStr = (s.change>=0?'+':'')+s.change+'%';
+
+  const ckBB  = s.cond_bb    ? `<div class="ck" style="background:#E8F8F1"><div class="ck-i">✓</div><div class="ck-l" style="color:#00763D">BB-Umkehr</div></div>`
+                             : `<div class="ck" style="background:#F5F5F5"><div class="ck-i" style="color:#ccc">✗</div><div class="ck-l" style="color:#bbb">BB-Umkehr</div></div>`;
+  const ckRSI = s.cond_rsi   ? `<div class="ck" style="background:#E8F8F1"><div class="ck-i">✓</div><div class="ck-l" style="color:#00763D">RSI ${s.rsi}</div></div>`
+                             : `<div class="ck" style="background:#F5F5F5"><div class="ck-i" style="color:#ccc">✗</div><div class="ck-l" style="color:#bbb">RSI ${s.rsi}</div></div>`;
+  const ckTrend = s.cond_trend ? `<div class="ck" style="background:#E8F8F1"><div class="ck-i">✓</div><div class="ck-l" style="color:#00763D">Trend ↑</div></div>`
+                              : `<div class="ck" style="background:#F5F5F5"><div class="ck-i" style="color:#ccc">✗</div><div class="ck-l" style="color:#bbb">Trend ↑</div></div>`;
+
+  let actionHTML = '';
+  if(s.signal === 'KAUFEN') {
+    actionHTML = `<div class="det-sec">
+      <div class="dst">Trade-Details</div>
+      <div class="dr"><span class="dl">Kaufen bei</span><span class="dv">${s.price_fmt}</span></div>
+      <div class="dr"><span class="dl">Stop-Loss (8% fix)</span><span class="dr2">${s.stop_fix} (−8%)</span></div>
+      <div class="dr"><span class="dl">Stop-Loss (ATR 2×)</span><span class="dr2">${s.stop_atr} (−${s.stop_atr_pct}%)</span></div>
+      <div class="dr"><span class="dl">Ziel 1 — MA20</span><span class="dg">${s.target1} (+${s.pot1}%)</span></div>
+      <div class="dr"><span class="dl">Ziel 2 — ob. BB</span><span class="dg">${s.target2} (+${s.pot2}%)</span></div>
+      <div class="dr"><span class="dl">Haltedauer</span><span class="dv">2–6 Wochen</span></div>
+      <div class="dr"><span class="dl">Max. Position</span><span class="dv">10% des Kapitals</span></div>
+    </div>
+    <div class="det-sec">
+      <div class="dst">Technische Werte</div>
+      <div class="dr"><span class="dl">RSI (14)</span><span class="dg">${s.rsi} — überverkauft</span></div>
+      <div class="dr"><span class="dl">BB Position</span><span class="dv">${s.bb_pct}%</span></div>
+      <div class="dr"><span class="dl">MA200</span><span class="dv">${s.ma200}</span></div>
+      <div class="dr"><span class="dl">52W-Position</span><span class="dv">${s.pos52}%</span></div>
+      <div class="dr"><span class="dl">ATR (14)</span><span class="dv">${s.atr} (${s.atr_pct}%)</span></div>
+    </div>`;
+  } else if(s.signal === 'FAST') {
+    const missing = s.missing.map(m=>`<div class="hint">→ ${m}</div>`).join('');
+    actionHTML = `<div class="det-sec">
+      <div class="dst">Zukünftiger Einstieg</div>
+      <div class="fb">
+        <div class="fr"><span class="fl">Möglicher Einstieg</span><span class="fv">${s.fut_entry}</span></div>
+        <div class="fr"><span class="fl">Stop-Loss dann</span><span class="fv" style="color:#E8333C">${s.fut_stop} (−8%)</span></div>
+        <div class="fr"><span class="fl">Ziel 1 — MA20</span><span class="fv" style="color:#00A65A">${s.target1} (+${s.pot1}%)</span></div>
+        <div class="fr"><span class="fl">Ziel 2 — ob. BB</span><span class="fv" style="color:#00A65A">${s.target2} (+${s.pot2}%)</span></div>
+      </div>
+      <div style="margin-top:10px"><div style="font-size:10px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">Was muss noch passieren?</div>${missing}</div>
+    </div>
+    <div class="det-sec">
+      <div class="dst">Technische Werte</div>
+      <div class="dr"><span class="dl">RSI (14)</span><span class="dv">${s.rsi}</span></div>
+      <div class="dr"><span class="dl">MA200</span><span class="dv">${s.ma200}</span></div>
+      <div class="dr"><span class="dl">ATR (14)</span><span class="dv">${s.atr} (${s.atr_pct}%)</span></div>
+    </div>`;
+  } else if(s.signal === 'VERKAUFEN') {
+    actionHTML = `<div class="det-sec">
+      <div class="dst">Verkauf-Signal</div>
+      <div class="sell-box">
+        <div class="sb-row"><span class="sl">RSI (überkauft)</span><span class="sv">${s.rsi}</span></div>
+        <div class="sb-row"><span class="sl">BB-Position</span><span class="sv">${s.bb_pct}%</span></div>
+        <div class="sb-row"><span class="sl">Empfehlung</span><span class="sv">Position jetzt schliessen</span></div>
+      </div>
+      <div class="hint" style="margin-top:10px;color:#E8333C">⚠ Ziel erreicht — Gewinn sichern!</div>
+    </div>`;
+  } else {
+    const missing = s.missing.map(m=>`<div class="hint">→ ${m}</div>`).join('');
+    actionHTML = `<div class="det-sec">
+      <div class="dst">Zukünftiger Einstieg</div>
+      <div class="fb">
+        <div class="fr"><span class="fl">Möglicher Einstieg</span><span class="fv">${s.fut_entry}</span></div>
+        <div class="fr"><span class="fl">Stop-Loss dann</span><span class="fv" style="color:#E8333C">${s.fut_stop}</span></div>
+        <div class="fr"><span class="fl">Ziel 1 — MA20</span><span class="fv" style="color:#00A65A">${s.target1}</span></div>
+      </div>
+      <div style="margin-top:10px"><div style="font-size:10px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">Was muss noch passieren?</div>${missing}</div>
+    </div>`;
+  }
+
+  document.getElementById('dContent').innerHTML = `
+    <div class="det-hero">
+      <div class="det-p">${s.price_fmt}</div>
+      <div class="det-chg" style="color:${chgCol}">${chgStr} heute</div>
+      <span class="det-badge" style="background:${c.bg};color:${c.col}">${c.lbl}</span>
+      <div class="cks">${ckBB}${ckRSI}${ckTrend}</div>
+    </div>
+    ${actionHTML}`;
+}
+
+// ── SUCHE ────────────────────────────────────────────────────────────────────
+function doSearch(v) {
+  const r = document.getElementById('sr');
+  if(!v || v.length < 2) { r.style.display='none'; return; }
+  const m = ALL_DATA.filter(s =>
+    s.ticker.toLowerCase().includes(v.toLowerCase()) ||
+    s.name.toLowerCase().includes(v.toLowerCase()) ||
+    s.market.toLowerCase().includes(v.toLowerCase())
+  ).slice(0,6);
+  if(!m.length) { r.style.display='none'; return; }
+  r.innerHTML = m.map(s => {
+    const c = SIG_CFG[s.signal]||SIG_CFG.NEUTRAL;
+    return `<div class="sri" onclick="document.getElementById('si').value='';document.getElementById('sr').style.display='none';openDetail('${s.ticker}')">
+      <div><div class="sri-t">${s.ticker}</div><div class="sri-n">${s.name} · ${FLAGS[s.market]||''} ${s.market}</div></div>
+      <span class="bdg" style="background:${c.bg};color:${c.col}">${c.lbl}</span>
+    </div>`;
+  }).join('');
+  r.style.display = 'block';
+}
+
+// Suche schliessen bei Klick außerhalb
+document.addEventListener('click', e => {
+  if(!e.target.closest('.srch')) document.getElementById('sr').style.display='none';
+});
+</script>
 </body>
 </html>"""
 
+
+# ── ROUTES ─────────────────────────────────────────────────────────────────
+import json
+
 @app.route("/")
 def index():
+    import json as _json
     data = CACHE["data"]
-    f    = request.args.get("f", "all")
-    now  = CACHE["time"]
+    scanning = CACHE.get("scanning", False)
+    now = CACHE["time"]
 
-    if f == "kaufen":       show = [r for r in data if r["signal"] == "KAUFEN"]
-    elif f == "fast":       show = [r for r in data if r["signal"] == "FAST"]
-    elif f == "beobachten": show = [r for r in data if r["signal"] == "BEOBACHTEN"]
-    elif f == "dax":        show = [r for r in data if r["market"] == "DAX"]
-    elif f == "us":         show = [r for r in data if r["market"] == "US"]
-    else:                   show = data
+    kaufen    = len([r for r in data if r["signal"] == "KAUFEN"])
+    fast      = len([r for r in data if r["signal"] == "FAST"])
+    verkaufen = len([r for r in data if r["signal"] == "VERKAUFEN"])
+    total     = len(data)
 
-    groups = [
-        ("Jetzt kaufen — alle 3 Bedingungen erfüllt", [r for r in show if r["signal"]=="KAUFEN"]),
-        ("Morgen prüfen — 2/3 Bedingungen erfüllt",   [r for r in show if r["signal"]=="FAST"]),
-        ("Beobachten — Signal baut sich auf",          [r for r in show if r["signal"]=="BEOBACHTEN"]),
-        ("Jetzt verkaufen — Position schliessen",      [r for r in show if r["signal"]=="VERKAUFEN"]),
-        ("Abwarten — noch kein Signal",                [r for r in show if r["signal"]=="NEUTRAL"]),
-    ]
+    # JSON für JS
+    data_json = _json.dumps(data, ensure_ascii=False)
 
-    return render_template_string(TEMPLATE,
-        data=show, groups=groups,
-        kaufen=len([r for r in data if r["signal"]=="KAUFEN"]),
-        fast=len([r for r in data if r["signal"]=="FAST"]),
-        verkaufen=len([r for r in data if r["signal"]=="VERKAUFEN"]),
-        total=len(data),
+    return render_template_string(
+        TEMPLATE,
+        data=data,
+        data_json=data_json,
+        kaufen=kaufen,
+        fast=fast,
+        verkaufen=verkaufen,
+        total=total,
         total_tickers=len(TICKERS),
+        wl_count=len(WATCHLIST),
         scan_time=now.strftime("Stand: %d.%m.%Y %H:%M Uhr") if now else "Noch kein Scan",
-        f=f,
+        scanning=scanning,
     )
+
 
 @app.route("/scan", methods=["POST"])
 def scan_all():
     import threading
-    threading.Thread(target=do_scan, args=(TICKERS,), daemon=True).start()
-    time.sleep(2)
-    return redirect("/")
+    if not CACHE.get("scanning"):
+        CACHE["scanning"] = True
+        threading.Thread(target=do_scan, args=(TICKERS,), daemon=True).start()
+    return redirect("/?scanning=1")
+
 
 @app.route("/scan-wl", methods=["POST"])
 def scan_wl():
-    do_scan(WATCHLIST)
-    return redirect("/")
+    import threading
+    if not CACHE.get("scanning"):
+        CACHE["scanning"] = True
+        threading.Thread(target=do_scan, args=(WATCHLIST,), daemon=True).start()
+    return redirect("/?scanning=1")
+
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    print(f"\n  TradeScan startet auf http://localhost:{port}\n")
+    port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=False)
