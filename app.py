@@ -79,7 +79,8 @@ def fetch_yf(ticker):
         df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True)
         if df is None or len(df) < 60:
             return ticker, None
-        df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
         df = df[["Open","High","Low","Close"]].dropna()
         return ticker, df
     except Exception as e:
